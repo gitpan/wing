@@ -1,3 +1,26 @@
+Changes from 0.8 to 0.9
+
+Support https connections (for secure access) and port 81 connections
+(to avoid the enforced proxying via multiple IP addresses done by
+some ISPs).
+
+Add explicit Date header to outgoing mail in maild otherwise a copy
+saved in sent-mail won't have a Date header.
+
+Fixed potential deadlock if /dev/urandom is unreadable.
+
+Handle base64 and quoted-printable decoding transparently ourselves.
+
+Send message/delivery-status MIME parts as text/plain since most
+browsers don't know what to do with them.
+
+Fold header continuation lines so that they don't get lost.
+
+Add explicit action attributes to all <form> tags for the sake of
+browsers which need them.
+
+
+
 Changes from 0.7 to 0.8
 
 Anonymised Oxford-specific stuff in Wing/Shared.pm for public release.

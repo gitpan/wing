@@ -310,13 +310,12 @@ sub make_wing_cookie {
 }
 
 #
-# Forms a login URL
+# Forms a login URL and returns the host and path_info part of the URL.
 #
 sub login_url {
     my $username = shift;
-    my $url = "http://$WING_DOMAIN";
-    $url .= "/login/$username" if $username;
-    return $url;
+    my $path_info = $username ? "/login/$username" : "/";
+    return ($WING_DOMAIN, $path_info);
 }
 
 

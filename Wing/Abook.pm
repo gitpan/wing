@@ -1168,24 +1168,24 @@ EOT
     $buffer = "";
     
     my $num = $ent->parts;
-    $r->warn("$num MIME parts");#debug
+#    $r->warn("$num MIME parts");#debug
     for (my $i = 0; $i < $num; $i++) {
 	my $part = $ent->parts($i);
 	my $name = $part->head->mime_attr("content-disposition.name");
-	$r->warn("part $i name=$name");#debug
+#	$r->warn("part $i name=$name");#debug
 	if ($name eq "abook") {
 	    $abook = $part->body->[0];
-	    $r->warn("abook=$abook");#debug
+#	    $r->warn("abook=$abook");#debug
 	    if (!is_legal_abook_name($abook)) {
 		return "Illegal address book name chosen. $LEGAL_ABOOK_RULES";
 	    }
 	} elsif ($name eq "type") {
 	    $type = $part->body->[0];
-	    $r->warn("type=$type");#debug
+#	    $r->warn("type=$type");#debug
 	    return "Illegal format chosen" unless $type eq "pine";
 	} elsif ($name eq "file") {
 	    $lines = $part->body;
-	    $r->warn("lines=$lines");#debug
+#	    $r->warn("lines=$lines");#debug
 	}
     }
 
@@ -1286,7 +1286,7 @@ EOT
 	    } else {
 		$count++;
 		sql_insert(@fields);
-		$r->warn("a=$alias fn=$first_name ln=$last_name c=$comment e=$email");#debug
+#		$r->warn("a=$alias fn=$first_name ln=$last_name c=$comment e=$email");#debug
 	    }
 	}
 	sql_disconnect;

@@ -54,8 +54,8 @@ sub handler {
     my %sessions = split(/[;=]/, $r->header_in("Cookie"));
     my $session = $sessions{$username};
 #    $r->warn("session for username $username is $session"); # debug
-    $conn->{url_prefix} = sprintf("http://%s/wing/cmd/%s/",
-				  $r->server->server_hostname, $username); 
+    my $server_url = server_url($r);
+    $conn->{url_prefix} = "$server_url/wing/cmd/$username/";
     if (!$session) {
 	$session = $url_session;
 	$conn->{url_prefix} .= $session;
@@ -89,7 +89,8 @@ sub handler {
 	my $exp = time2str(time - 1);
 	$r->header_out("Set-Cookie" =>
 		       make_wing_cookie($username, $session, $exp));
-	my $login_url = login_url($username);
+	my ($host, $path_info) = login_url($username);
+	my $login_url = server_url($r, $host) . $path_info;
 	return wing_error($r, <<"EOT");
 Session does not exist (timed out perhaps?).
 Please click <a href="$login_url">here</a> to login again.
@@ -181,7 +182,8 @@ sub kill_session {
 #	$r->warn("PID $$ kill_session disconnected from database after session zap");#debug
 	unlink(make_session_socket($username, $session));
 	kill("TERM", $pid);
-	my $login_url = login_url($username);
+	my ($host, $path_info) = login_url($username);
+	my $login_url = server_url($r, $host) . $path_info;
 	$r->content_type("text/html");
 	$r->send_http_header;
 	$r->print(<<"EOT");
@@ -216,7 +218,7 @@ use DBI;
 use IO::File;
 use Socket;
 use CrackLib;		# for FascistCheck of proposed passwords
-use MIME::Base64;	# for decode_base64 in cmd_rawdisplay
+use MIME::Base64;	# for decode_base64 in decode_body_in_place
 use HTTP::Date;		# for time2str in cmd_logout
 use SQL;
 use IO::Handle;
@@ -411,12 +413,6 @@ EOT
 EOT
     }
 
-    my $portal_html = $portal ? "" : <<"EOT";
-<td><a href="$url_prefix/portal">
-  <img src="/wing-icons/portal.gif" border=0 align="absmiddle" alt="Portal"></a>
-</td>
-EOT
-
     my $links_html = $portal ? "" : <<"EOT";
 <td><a href="$url_prefix/links">
   <img src="/wing-icons/links.gif" border=0 alt="Links"></a></td>
@@ -441,16 +437,11 @@ EOT
   <img src="/wing-icons/options.gif" border=0 alt="Options"></a></td>
 <td><a href="$url_prefix/expunge">
   <img src="/wing-icons/purge.gif" border=0 alt="Purge"></a></td>
+<td><a href="$url_prefix/abook_list/list">
+ <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a></td>
+$links_html
 <td><a href="$url_prefix/logout//list">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
-</tr>
-</table>
-<table>
-<tr>
-$portal_html
-<td><a href="$url_prefix/abook_list/list">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a></td>
-$links_html
 </tr>
 </table>
 EOT
@@ -609,12 +600,44 @@ sub _show_structure {
     }
 }
 
+#
+# Handle encodings of base64 and quoted-printable
+# Called as decode_body_in_place($encoding, $body)
+# As the name suggests, we modify the second argument in-place
+#
+sub decode_body_in_place {
+    my $encoding = shift;
+    return unless $encoding and defined($_[0]) and length($_[0]);
+    $encoding = lc($encoding);
+    for ($_[0]) {
+	if ($encoding eq "base64") {
+	    $_ = decode_base64($_);
+	} elsif ($encoding eq "quoted-printable") {
+	    #
+	    # We need to change line endings CRLF -> LF first before doing
+	    # the decode. Instead of doing that first and then calling
+	    # MIME::QuotedPrint decode_qp() we do it all in one for speed.
+	    #
+	    s/[ \t]*\r?$//mg;
+	    s/=\n//sg;
+	    s/=([0-9a-fA-F]{2})/chr(hex($1))/ge;
+	}
+    }
+}
+
 sub cmd_rawdisplay {
     my $conn = shift;
     my $r = $conn->{request};
     my ($msgno, $mime_sect, $type, $encoding, $params, $name) = @_;
     ($type, $encoding, $params) = canon_decode($type, $encoding, $params);
     my $s = $conn->{maild};
+    #
+    # Send a message/delivery-status type (RFC1894) to the browser as
+    # test/plain since otherwise most don't know what to do with it
+    #
+    if ($type eq "message/delivery-status") {
+	$type = "text/plain";
+    }
     $type .= "; $params" if $params;
     $r->content_type($type);
     print $s "body $msgno $mime_sect\n";
@@ -628,22 +651,7 @@ sub cmd_rawdisplay {
 	$r->warn("rawdisplay: only got ", length($body),
 		 "bytes instead of $size while reading body");
     }
-    #
-    # Handle encodings of base64 and quoted-printable
-    #
-    $encoding = lc($encoding);
-    if ($encoding eq "base64") {
-        $body = decode_base64($body);
-    } elsif ($encoding eq "quoted-printable") {
-	#
-	# We need to change line endings CRLF -> LF first before doing
-	# the decode. Instead of doing that first and then calling
-	# MIME::QuotedPrint decode_qp() we do it all in one for speed.
-	#
-	$body =~ s/[ \t]*\r?$//mg;
-	$body =~ s/=\n//sg;
-	$body =~ s/=([0-9a-fA-F]{2})/chr(hex($1))/ge;
-    }
+    decode_body_in_place($encoding, $body);
     # Try to stop extra \r characters from creeping in
     $r->header_out("Content-Transfer-Encoding" => "binary");
 
@@ -712,6 +720,7 @@ EOT
 	chomp(my $size = <$s>);
 	read($s, my $hdrtext, $size);
 	$hdrtext =~ tr/\r//d;
+	$hdrtext =~ s/\n\s+/ /gs;	# Fold header continuation lines
 	my %headers = $hdrtext =~ /^(.*?): (.*)$/mg;
 	$subject = $headers{Subject} || "(No subject)";
 	$header_html = "<table>\n";
@@ -797,23 +806,29 @@ EOT
     # Finally show the body (or MIME subpart of the body) if it's
     # (a) single part or (b) we're doing an explicit $mime_sect or
     # (c) we're doing a multipart whose first part is text/plain
+    # We need to be careful to get the right encoding
     #
     my $body_cmd;
+    my $body_encoding;
     if (defined($mime_sect)) {
 	$body_cmd = "body $msgno $mime_sect";
+	$body_encoding = $encoding;
     }
     elsif ($is_multipart) {
 	if ($struct->[0]->[1] eq "text/plain") {
 	    $body_cmd = "body $msgno 1";
+	    $body_encoding = $struct->[0]->[4];
  	}
     }
     else {
 	$body_cmd = "body $msgno";
+	$body_encoding = $struct->[4];
     }
     if (defined($body_cmd)) {
 	print $s $body_cmd, "\n";
 	chomp(my $size = <$s>);
 	read($s, $body, $size);
+	decode_body_in_place($body_encoding, $body);
 	$body =~ s/</&lt;/g;
 	#
 	# The following regexp attempts to match "reasonable" URLs.
@@ -934,7 +949,9 @@ EOT
     my $exp = time2str(time - 1);
     $r->header_out("Set-Cookie" =>
 		       make_wing_cookie($username, $session, $exp));
-    return redirect($r, login_url());
+    my ($host, $path_info) = login_url();
+    my $login_url = server_url($r, $host) . $path_info;
+    return redirect($r, $login_url);
 }
 
 sub cmd_compose {
@@ -2455,6 +2472,15 @@ sub cmd_options {
     $copy_outgoing = $copy_outgoing ? 1 : 0;
     my $copy_outgoing_checked = $copy_outgoing ? " checked" : "";
 
+    my $portal = maild_get($s, "portal");
+    my $portal_html = $portal ? "" : <<"EOT";
+To switch to a portal view of your mail (your browser must support
+frames), use this button:
+<a href="$url_prefix/portal">
+  <img src="/wing-icons/portal.gif" border=0 align="absmiddle" alt="Portal"></a>
+<hr>
+EOT
+
     my %q = $r->content;
     $r->content_type("text/html");
     $r->send_http_header;
@@ -2524,7 +2550,7 @@ EOT
 	$sql .= sprintf(", signature = %s", $dbh->quote($signature));
 	$sql .= sprintf(", composeheaders = %s",
 			$dbh->quote($compose_headers));
-	$sql .= sprintf(", copyoutgoing = %d", $copy_outgoing);
+	$sql .= sprintf(", copyoutgoing = '%s'", $copy_outgoing ? "t" : "f");
 	$sql .= " where username = '$username'";
 	$done = $dbh->do($sql);
 #	$r->warn("return value $done from: $sql"); # debug
@@ -2545,6 +2571,7 @@ EOT
     } elsif ($do_settings) {
 	$info_msg = "Options have been set for this session only";
     }
+
     $r->print(<<"EOT");
 <html><head><title>Options for username $username</title></head>
 <body>
@@ -2560,6 +2587,7 @@ EOT
 <br><strong>$info_msg</strong><br>
 <h2 align="center">Options</h2>
 <form method="POST" action="$url_prefix/options">
+$portal_html
 Number of messages listed in one screenful.
 Enter 0 to list all messages on one screen.
 <br>

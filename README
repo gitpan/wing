@@ -1,4 +1,4 @@
-		   WING - Web IMAP/NNTP Gateway, version 0.8
+		   WING - Web IMAP/NNTP Gateway, version 0.9
 
 		  Copyright (C) 1998, 1999 by Malcolm Beattie
 
@@ -19,8 +19,14 @@
 
 DESCRIPTION
 
+WING is an Open Source Apache/mod_perl based system which allows users
+to access email held on an IMAP server via any web browser.
+
 WING provides a gateway so that users can access email held on an
-IMAP server via any web browser. Some features of WING are:
+IMAP server via any web browser. See
+    http://users.ox.ac.uk/~mbeattie/wing/
+
+Some features of WING are:
 
  * The browser does not need to support Java, JavaScript or frames
    but table and cookie support are preferable.
@@ -35,8 +41,6 @@ IMAP server via any web browser. Some features of WING are:
    "From:" header cannot be changed or forged for outgoing messages
    from WING.
  * WING is scalable up to thousands and tens of thousands of users.
-
-WING 0.8 introduces the following features:
  * Users can import address books by uploading them via their browser
    (only Pine format address books supported in this version).
  * Users can create their own links (bookmarks), presented in a
@@ -67,11 +71,16 @@ In its current state, WING requires many other pieces of software to
 function. Future versions may be easier to install, configure and
 maintain but this one requires the attention of an experienced system
 administrator familiar with Apache/mod_perl, Perl and SQL databases.
+
 It was also developed primarily for Linux. Although almost all of it
 is portable, if you're running it on something other than Linux you'll
 at least need to edit Wing/Login.pm and write a new version of
-make_session_id() that gets cryptographically strongly random numbers
-by some other means than simply reading /dev/urandom.
+make_session_id() that gets *cryptographically* strongly random numbers
+by some other means than simply reading /dev/urandom. (Don't just use
+rand() or a PRNG--that sort of randomness isn't suitable. If you don't
+understand why not, get someone else to do the port. Getting it wrong
+will open up a security hole.)
+
 For configuring a mail cluster and its associated features, the
 administrator will also need to know about network configuration,
 firewalling, NFS, automount, named and exim. You have been warned.
@@ -79,13 +88,14 @@ firewalling, NFS, automount, named and exim. You have been warned.
 
 AVAILABILITY
 
-Wing is available from your favourite CPAN site as a tar ball or from
+Wing is available from your favourite CPAN site as a tar ball
+    modules/by-authors/Malcolm_Beattie/wing-0.9.tar.gz
 its home site in tar.gz form
-    ftp://ftp.ox.ac.uk/pub/perl/Wing-0.6.tar.gz
+    ftp://ftp.ox.ac.uk/pub/perl/Wing-0.9.tar.gz
 or source RPM form
-    ftp://ftp.ox.ac.uk/pub/linux/SRPMS/wing-0.6-1.src.rpm
+    ftp://ftp.ox.ac.uk/pub/linux/SRPMS/wing-0.9-1.src.rpm
 or "binary" (noarch) RPM form for Red Hat 5.x Linux
-    ftp://ftp.ox.ac.uk/pub/linux/RPMS/noarch/wing-0.6-1.noarch.rpm
+    ftp://ftp.ox.ac.uk/pub/linux/RPMS/noarch/wing-0.9-1.noarch.rpm
 
 
 INSTALLATION
@@ -123,7 +133,7 @@ Perl 5.004_04 (or later) and the following Perl modules:
   SQL
 
 Most of these are standard CPAN modules, a couple are modules
-I've written but not officially released yet (CrakLib and SQL).
+I've written but not officially released yet (CrackLib and SQL).
 All are available in RPM form at
     ftp://ftp.ox.ac.uk/pub/linux/SRPMS/
 for the source RPMs and
@@ -242,14 +252,11 @@ at the source and figure it out for yourself if you're adventurous.
 
 SUPPORT
 
-There isn't any official support. Don't mail me directly. However,
-I have set up a mailing list called "wing-admin" where I anticipate
-those who want to set up WING can discuss things. I will monitor that
-mailing list and help where I can but I'm not going to answer every
-single little question, I'm not going to respond quickly (necessarily)
-and I'm going to assume a good deal of sysadmin knowledge on the part
-of participants. The list is a majordomo list. To subscribe, send the
-following message *body* (the subject line is irrelevant and ignored)
+There isn't any official support. There is however a mailing list
+called "wing-admin" where those who use WING or want to set up WING
+can discuss things. I monitor that mailing list and help where I can.
+The list is a majordomo list. To subscribe, send the following message
+*body* (the subject line is irrelevant and ignored)
     subscribe wing-admin
 to majordomo@maillist.ox.ac.uk. To unsubscribe again send the message
 body "unsubscribe wing-admin" to the same address. To send messages to
@@ -269,3 +276,6 @@ Version 0.6, first public release
 
 Version 0.8, second public release
 1 June 1999
+
+Version 0.9
+3 August 1999

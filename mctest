@@ -35,6 +35,13 @@ set_callback
 	list => sub {
 	    shift;
 	    print "list: @_\n";
+	},
+	status => sub {
+	    my ($stream, $mailbox, @attrs) = @_;
+	    print "status of mailbox $mailbox:\n";
+	    while (my ($key, $value) = splice(@attrs, 0, 2)) {
+		print "$key: $value\n";
+	    }
 	};
 
 my $mc;
@@ -77,8 +84,13 @@ while (defined($_ = $term->readline("mctest> "))) {
 	elsif (my ($seq, $flag) = /^clearflag (.*?) (.*)/) {
 	    $mc->clearflag($seq, $flag);
 	}
-	elsif (/^stat/) {
-	    print $mc->nmsgs, " messages in mailbox $mailbox\n";
+	elsif (my ($mailbox, $rest) = /^status (\S+)(.*)/) {
+	    $rest ||= "messages recent unseen uidvalidity uidnext";
+	    my @attrs = split(' ', $rest);
+	    $mc->status($mailbox, @attrs);
+	} elsif (/^stat/) {
+	    print $mc->nmsgs, " messages in mailbox $mailbox, ",
+		  $mc->recent, " recent\n";
 	    my @flags;
 	    push(@flags, "perm_seen") if $mc->perm_seen;
 	    push(@flags, "perm_deleted") if $mc->perm_deleted;
@@ -141,6 +153,7 @@ expunge
 flags msgno
 setflag seq flag
 clearflag seq flag
+status mailbox [attr ...]
 stat
 head msgno
 body msgno part

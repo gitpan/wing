@@ -1,5 +1,0 @@
-Remove ou crest from wing::balance
-initial_mailbox() in wing::balance and wing::shared
-Change wing_domain to edit-wing-domain.exanple.org
-Change ldap_root 
-Change wing_dbi_connect_args

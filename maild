@@ -10,6 +10,7 @@
 #
 # 25 Aug 1998  Copied from development system to main cluster.
 # 23 Feb 1999  Release version 0.5
+# 17 Jun 1999  Add explicit Date header in sub sendmail
 #
 use IO::Socket;
 use Mail::Cclient qw(set_callback);
@@ -22,6 +23,9 @@ sub handle;
 
 my $imap_error = "";	# holds the last error message from the IMAP server
 my $imap_info = "";	# holds the last info message from the IMAP server
+
+my @day_name = qw(Sun Mon Tue Wed Thu Fri Sat);
+my @month_name = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
 
 open(PID_FILE, ">$MAILD_SOCKET_DIR/maild.pid");
 print PID_FILE "$$\n";
@@ -764,10 +768,34 @@ sub sendmail {
 	s/^opt_hdr_//;
 	("$_:" => $val);
     } @header_keys;
+    #
+    # Add our own Date header. Without this, the MTA will add its own
+    # but we won't have one to save if copy_outgoing is on.
+    # The tricky bit is calculating the timezone offset.
+    #
+    my $sign = "+";
+    my $tweve_hours = 60 * 60 * 12;
+    my @loc = localtime($tweve_hours);
+    my @utc = gmtime($tweve_hours);
+    my $dmin = $loc[1] - $utc[1];
+    my $dhour = $loc[2] - $utc[2];
+    if ($dmin < 0) {
+	$dhour--;
+	$dmin += 60;
+    }
+    if ($dhour < 0) {
+	$sign = "-";
+	$dhour = -$dhour;
+    }
+    my ($sec, $min, $hour, $mday, $mon, $year, $wday) = localtime;
+    my $date = sprintf("%s, %02d %s %04d %02d:%02d:%02d %s%02d%02d",
+		       $day_name[$wday], $mday, $month_name[$mon],
+		       $year + 1900, $hour, $min, $sec, $sign, $dhour, $dmin);
     my $entity = MIME::Entity->build(Path => "$tmpdir/body",
 				     Filename => undef,
 				     Type => "text/plain",
 				     From => $conn->{opt_sender},
+				     "Date:" => $date,
 				     @headers);
     foreach my $a (@$attachments) {
 	my @args = (Path => "$tmpdir/attach.$a->[0]",

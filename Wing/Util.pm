@@ -16,14 +16,14 @@
 package Wing::Util;
 use Apache::Constants qw(:common REDIRECT);
 use Wing::Shared;
-use Socket;	# for AF_INET
+use Socket;	# for AF_INET and sockaddr_in
 use Fcntl;
 use HTTP::Date;	# for str2time
 use strict;
 use vars qw(@ISA @EXPORT);
 @ISA = 'Exporter';
 @EXPORT = qw(&dont_cache &redirect &wing_error &info_message_html
-	     &finger &do_write_file);
+	     &finger &do_write_file &server_url);
 
 #
 # Prevent browser from caching: a simple $r->no_cache(1) is insufficient.
@@ -126,6 +126,34 @@ sub do_write_file {
     print FILE $contents;
     close(FILE);
     return 1;
+}
+
+#
+# Note that we must use $r->connection->local_addr to get the port
+# and not $r->get_server_port or $r->server->port.
+# The former gives the actual port on which this request was
+# received (and we listen on both 80 and 81) whereas the latter two
+# give the canonical port of the (virtual)host which is always 80.
+# Now life gets even more complicated: we also do https which
+# listens on 443. There doesn't seem to be a special method to
+# pick off "http" or "https" so we just check for 443 and fix up
+# the server_url to start with https if so. Blech.
+#
+
+sub server_url {
+    my ($r, $hostname) = @_;
+    my ($port) = sockaddr_in($r->connection->local_addr);
+    my $scheme = "http";
+    if ($port == 443) {
+	$scheme = "https";
+	$port = "";
+    } elsif ($port == 80) {
+	$port = "";
+    } else {
+	$port = ":$port";
+    }
+    $hostname ||= $r->server->server_hostname;
+    return "$scheme://$hostname$port";
 }
 
 1;

@@ -31,6 +31,7 @@
 package Wing::Balance;
 use Apache::Constants qw(:common REDIRECT);
 use Wing::Util;
+use Wing::Shared;
 use strict;
 
 my $LIVE_LIST_PATH = "/etc/wing.live";
@@ -63,7 +64,6 @@ sub handler {
     my $r = shift;
     my $uri = $r->uri;
     my $username = "";
-    my $action;
 
     if (@live_list == 0) {
 	return DECLINED;
@@ -78,7 +78,8 @@ sub handler {
     }
     my $j = (time + $$ + $i++) % @live_list;
     $i = 0 if $i > $#live_list;		# simply not to worry about wrapping
-    $action = "http://$live_list[$j]/wing/login";
+    my $server_url = server_url($r, $live_list[$j]);
+    my $action = "$server_url/wing/login";
     $action .= "/$username" if $username;
 
     #
@@ -99,7 +100,7 @@ sub handler {
 <form action="$action" method="POST">
 <table cellpadding=5>
 <tr>
-  <td rowspan=3>
+  <td rowspan=4>
     $LOGIN_LOGO
   </td>
   <td>Username</td>
@@ -108,6 +109,15 @@ sub handler {
 <tr>
   <td>Password</td>
   <td><input type="password" name="password" size=16></td>
+</tr>
+<tr>
+  <td>Session type</td>
+  <td>
+    <select name="sess_type" size=1>
+      <option value="" selected>Normal</option>
+      <option value="portal">Portal (requires frames)</option>
+    </select>
+  </td>
 </tr>
 <tr>
   <td>

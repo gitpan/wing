@@ -64,7 +64,7 @@ sub _looks_like_url {
 sub _linkline_to_html {
     my $line = shift;
     my $item;
-    Apache->request->warn("linkline: $line"); # debug
+#    Apache->request->warn("linkline: $line"); # debug
     if ($line =~ /^</) {
 	# assumed to be raw HTML
 	$item = $line;

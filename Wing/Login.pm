@@ -35,10 +35,12 @@ use vars qw(@session_chars $id $start $username $host $server $pid);
 #
 sub make_session_id {
     if (!defined(fileno(RANDOM))) {
-	open(RANDOM, "/dev/urandom") or die "panic: /dev/urandom: $!";
+	open(RANDOM, "/dev/urandom") or return undef;
     }
     my $rawid;
-    read(RANDOM, $rawid, 24) == 24 or die "panic: read /dev/urandom: $!";
+    if (read(RANDOM, $rawid, 24) != 24) {
+	return undef;
+    }
     $rawid =~ s/(.)/$session_chars[ord($1) & 63]/esg;
     return $rawid;
 }
@@ -57,6 +59,10 @@ sub contact_maild {
 sub create_session ($$$) {
     my ($r, $password, $folder) = @_;
     my $session = make_session_id();
+    if (!defined($session)) {
+	$r->warn("make_session_id failed, errno indicates: $!");
+	return undef;
+    }
     # There's an argument that we ought to loop around and check the
     # session ID we've just created isn't already in use. However,
     # since it's a crypto-random 120-bit quantity, we don't bother.
@@ -97,7 +103,8 @@ sub authenticate_only ($$$) {
 
 sub login_incorrect ($) {
     my ($r) = @_;
-    my $login_url = login_url($username);
+    my ($host, $path_info) = login_url($username);
+    my $login_url = server_url($r, $host) . $path_info;
     $r->content_type("text/html");
     $r->send_http_header;
     $r->print(<<"EOT");
@@ -170,7 +177,8 @@ EOT
     if ($username eq "" || length($username) > 8
 	|| $username =~ /\W/ || $username ne lc($username))
     {
-	my $login_url = login_url();
+	my ($host, $path_info) = login_url();
+	my $login_url = server_url($r, $host) . $path_info;
 	$r->content_type("text/html");
 	$r->send_http_header;
 	$r->print(<<"EOT");
@@ -232,10 +240,10 @@ EOT
     if (!$session) {
 	return login_incorrect($r);
     }
+    my $server_url = server_url($r);
     $r->header_out("Set-Cookie" => make_wing_cookie($username, $session));
-    return redirect($r, sprintf("http://%s/wing/cmd/%s/%s/check-cookie/%s",
-				$r->server->server_hostname, $username,
-				$session, $sess_type));
+    return redirect($r,
+	"$server_url/wing/cmd/$username/$session/check-cookie/$sess_type");
 }
 
 1;

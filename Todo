@@ -1,0 +1,10 @@
+Help links on each screen and associated help.
+Address book related stuff
+    LDAP integration
+Auto-timeout of sessions
+
+Possible Enhancements
+    Sorting mailboxes
+    Add tagged messages
+    Limit mailbox lists by constraints
+    Search mailboxes with the IMAP "SEARCH" primitive

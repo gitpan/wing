@@ -1,0 +1,67 @@
+Changes from 0.4 to 0.5
+
+Full address book support added. Still not thoroughly tested.
+
+Added "du" command to Wing::Admin interface.
+
+Message list says "To: ..." for outgoing messages.
+
+Outgoing messages can be copied to the sent-mail mailbox.
+
+Current mailbox can be exported in Berkeley format from
+the "Manage" screen.
+
+Cleanup of maild/httpd variable interaction: everything now
+consistently uses maild_set/maild_get.
+
+Button placing on the Compose screen has been changed.
+
+Disk Usage screen summarises usage, quota and remaining space.
+
+Icons for up and down arrow buttons have changed.
+
+
+Changes from 0.3 to 0.4
+
+Clients are now less likely to hang if you hit "Stop".
+
+base64 and quoted-printable MIME attachments are now displayed
+even on browsers which don't handle the decoding themselves.
+Additional HTTP headers are sent while displaying MIME attachments
+to help browsers (as far as possible) to display them correctly.
+
+Non-plaintext attachments are not now displayed in a newly-created
+window even with browsers that support it: too many people were
+confused by the extra window (or couldn't find it).
+
+Client filenames are now URL-(en/de)coded automatically so, for
+example, filenames with spaces appear properly instead of
+containing "%20" sequences.
+
+MIME attachments are uploaded correctly (before, attachments over
+16K were corrupted). The MIME type of any uploaded attachment is
+displayed in the "MIME Attachments" list. (Note: it is totally
+dependent on what MIME type the client tells the server.)
+
+Uploaded "Include" files are now placed before any sig indicator
+line ("-- ") instead of right at the end of the current message body.
+
+There is now a link to information on OUCS password policy from the
+"Change password" screen.
+
+The body of displayed mail messages is now escaped to avoid HTML any
+HTML markup at all and anything that looks reasonably like an URL is
+made into a hot link.
+
+In the "Manage account" screen, cmd_manage wasn't initialising the
+displayed versions of the forwarding address and vacation message
+properly. They would appear correct immediately after the relevant
+button was pressed but would appear blank on re-entry to the screen
+(although the saved settings were stored and functioning correctly).
+
+Successful logout forcibly expires session cookie to prevent future
+failed logins from presenting stale cookie. When that happened, the
+client saw a "bad session" error message instead of "login incorrect".
+
+Removed stub "set address book search path" and "set bcc to self"
+options in cmd_options.

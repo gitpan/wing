@@ -8,6 +8,7 @@
 # This program may be distributed under the GNU General Public License (GPL)
 #
 # 25 Aug 1998  Copied from development system to main cluster.
+# 23 Feb 1999  Release version 0.5
 #
 package Wing;
 use Apache::Constants qw(:common);
@@ -26,11 +27,13 @@ $VERSION = "0.2";
 sub handler {
     my $r = shift;
 
-    if ($r->header_only) {
+    if (!$r) {
+	Apache->error("null request passed to Wing::handler");
+	return OK;
+    } elsif ($r->header_only) {
 	$r->warn("header_only request for ", $r->path_info);
+	return OK;
     }
-    my $ok = OK;
-    my $uri = $r->uri;
 #    $r->warn("path_info = ", $r->path_info); # debug
     my ($loc, $handler, $username, $url_session, $cmd, @args)
 	= split(m(/), $r->path_info);
@@ -63,7 +66,7 @@ sub handler {
     # to list the current folder.
     #
     if ($cmd eq "check-cookie") {
-	return redirect($r, "$conn->{url_prefix}/init");
+	return redirect($r, "$conn->{url_prefix}/init/$args[0]");
     }
     #
     # Sanity-check username and session identifier
@@ -215,7 +218,85 @@ use Socket;
 use CrackLib;		# for FascistCheck of proposed passwords
 use MIME::Base64;	# for decode_base64 in cmd_rawdisplay
 use HTTP::Date;		# for time2str in cmd_logout
-use Wing::Abook;	# Wing::Connection handlers for address books
+use SQL;
+use IO::Handle;
+use Mail::Header;
+
+sub _CHUNK_SIZE () { 16384 }	# the chunk size in which we read upload data
+
+sub _receive_upload {
+    my ($r, $filename) = @_;
+    my $fh = IO::File->new(">$filename") or return "$filename: $!";
+    my $field = Mail::Field->new("Content-Type");
+    $field->parse($r->header_in("Content-Type"));
+    my $boundary = $field->param("boundary");
+    my $size = $r->header_in("Content-Length");
+    my $count = $size;
+    my $buffer;
+    my ($client_filename, $type);
+    if ($count > $UPLOAD_SIZE_LIMIT) {
+	return "upload of $count bytes exceeds limit ($UPLOAD_SIZE_LIMIT bytes)";
+    }
+#    $r->warn("_receive_upload: client is sending us $count bytes");#debug
+    do {
+	my $toread = _CHUNK_SIZE;
+	if ($toread > $count) {
+	    $toread = $count;
+	}
+#	$r->warn("_receive_upload: trying to read $toread bytes"); # debug
+	$buffer = "";	# must reset $buffer or Apache::read appends to it
+	my $didread = $r->read($buffer, $toread);
+#	$r->warn("_receive_upload: read $didread bytes"); # debug
+	if ($didread == 0) {
+	    $fh->close;
+	    return "unexpected end of data";
+	}
+	if ($count == $size) {
+	    #
+	    # first buffer of all: remove the MIME boundary after checking it
+	    # and then parse and remove the headers.
+	    #
+	    if (substr($buffer, 0, length($boundary)+4) ne "--$boundary\r\n") {
+		$fh->close;
+		return "broken MIME boundary marker at start";
+	    }
+	    substr($buffer, 0, length($boundary) + 4) = "";
+	    if ($buffer !~ s/^(.*?\r\n\r\n)//s) {
+		$fh->close;
+		return "missing headers";
+	    }
+	    my $headers = $1;
+	    my $deb_headers = $headers;
+	    $deb_headers =~ s/\r/\\r/gs;
+	    $deb_headers =~ s/\n/\\n/gs;
+#	    $r->warn("_receive_upload: MIME headers: $deb_headers");
+	    my $head = Mail::Header->new([split(/\r\n/, $headers)]);
+	    my $disp = $head->get("Content-Disposition");
+	    $client_filename = Mail::Field->new("Content-Disposition",
+						$disp)->filename;
+	    $type = $head->get("Content-Type");
+#	    $r->warn("_receive_upload: disp=$disp, client_filename=$client_filename, type=$type, size=$size");#debug
+	}
+#	$r->warn("_receive_upload: writing ", length($buffer), " bytes");#debug
+	print $fh $buffer;
+	$count -= $didread;
+    } while ($count > 0);
+
+    #
+    # check the trailing MIME boundary is OK
+    #
+    my $endlen = length($boundary) + 8;
+    if (substr($buffer, -$endlen) ne "\r\n--$boundary--\r\n") {
+	return "broken MIME boundary marker at end";
+    }
+    $fh->flush;
+    my $filesize = (stat($fh))[7];
+#    $r->warn("_receive_upload: filesize $filesize, truncating $endlen bytes to make ", $filesize - $endlen, " bytes");#debug
+    truncate($fh, $filesize - $endlen);
+    $fh->close;
+    $type =~ tr/\r\n//d;
+    return ("", $type, $client_filename);
+}
 
 sub _replace_body ($$$) {
     my $r = shift;
@@ -238,7 +319,7 @@ sub _replace_body ($$$) {
 }
 
 sub cmd_init {
-    my $conn = shift;
+    my ($conn, $sess_type) = @_;
     my $r = $conn->{request};
     my $s = $conn->{maild};
 
@@ -275,11 +356,14 @@ sub cmd_init {
 #    $r->warn("PID $$ cmd_init disconnecting from database");#debug
 
 #    maild_set($s, "message", "Welcome $username");
+    if ($sess_type eq "portal") {
+	return cmd_portal($conn);
+    }
     return redirect($r, "$conn->{url_prefix}/list/last");
 }
 
 sub cmd_list {
-    my ($conn, @args) = @_;
+    my ($conn, $start, $rand) = @_;
     my $r = $conn->{request};
     dont_cache($r, "text/html");
     my $s = $conn->{maild};
@@ -288,8 +372,9 @@ sub cmd_list {
 
     my $info_msg = info_message_html($s);
     maild_set($s, "abook_return", "list");
+    my $portal = maild_get($s, "portal");
 
-    print $s "list $args[0]\n";
+    print $s "list $start\n";
     chomp(my $folder = <$s>);
     chomp(my $position = <$s>);
     chomp(my $flags = <$s>);
@@ -325,6 +410,18 @@ EOT
   <img src="/wing-icons/bottom.gif" border=0 alt="Bottom"></a>
 EOT
     }
+
+    my $portal_html = $portal ? "" : <<"EOT";
+<td><a href="$url_prefix/portal">
+  <img src="/wing-icons/portal.gif" border=0 align="absmiddle" alt="Portal"></a>
+</td>
+EOT
+
+    my $links_html = $portal ? "" : <<"EOT";
+<td><a href="$url_prefix/links">
+  <img src="/wing-icons/links.gif" border=0 alt="Links"></a></td>
+EOT
+
     my $header = <<"EOT";
 <table width="100%">
 <tr>
@@ -344,11 +441,16 @@ EOT
   <img src="/wing-icons/options.gif" border=0 alt="Options"></a></td>
 <td><a href="$url_prefix/expunge">
   <img src="/wing-icons/purge.gif" border=0 alt="Purge"></a></td>
-<td><a href="$url_prefix/abook_list/list">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
-</td>
 <td><a href="$url_prefix/logout//list">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
+</tr>
+</table>
+<table>
+<tr>
+$portal_html
+<td><a href="$url_prefix/abook_list/list">
+  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a></td>
+$links_html
 </tr>
 </table>
 EOT
@@ -477,7 +579,6 @@ sub _show_structure {
 	$r->print("</ol>");
     } else {
 	my ($id, $type, $description, $size, $encoding, $params) = @$part;
-	    canon_encode(@$part);
 #	$r->warn("_show_structure writing info for id $id");#debug
 	my $name = "noname";
 	#
@@ -648,11 +749,9 @@ EOT
 <td><a href="$url_prefix/compose/fresh">
   <img src="/wing-icons/compose.gif" border=0 alt="Compose"></a></td>
 <td><a href="$url_prefix/$del_or_undel/$uid/$msgno/display">
-  <img src="/wing-icons/$del_or_undel.gif" border=0 alt="\u$del_or_undel"></a>
-</td>
+  <img src="/wing-icons/$del_or_undel.gif" border=0 alt="\u$del_or_undel"></a></td>
 <td><a href="$url_prefix/abook_list">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
-</td>
+  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a></td>
 <td><a href="$url_prefix/logout//$logout_callback">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
 </tr></table>
@@ -803,7 +902,7 @@ sub cmd_logout {
   <img src="/wing-icons/cancel-logout.gif" border=0 alt="Cancel logout"></a>
 </td>
 <td align="center">
-<a href="$url_prefix/logout/confirm/$callback_raw">
+<a href="$url_prefix/logout/confirm/$callback_raw" target="_parent">
   <img src="/wing-icons/confirm-logout.gif" border=0 alt="Confirm logout"></a>
 </td>
 </tr>
@@ -912,13 +1011,7 @@ sub cmd_compose {
 	    #
 	    # lookup value for header in address books and username table
 	    #
-	    # XXX For now, we don't worry about commas in comments nor
-	    # about trying to allow white space to separate addresses.
-	    # We just split on /\s*,\s*/ to find multiple addresses.
-	    #
-	    my $hdrline = maild_get($s, "hdr_$hdr");
-	    my @addresses = _lookup_alias($conn, split(/\s*,\s*/, $hdrline));
-	    my $result = join(", ", @addresses);
+	    my $result = _lookup_alias($conn, maild_get($s, "hdr_$hdr"));
 	    $headers{$hdr} = $result;
 	    maild_set($s, "hdr_$hdr", $result);
 	}
@@ -975,7 +1068,7 @@ sub cmd_compose {
     $r->print(<<"EOT");
 <html><head><title>Draft message</title>
 <body>
-<form method="POST">
+<form method="POST" action="$url_prefix/compose">
 <input type="submit" name="sub_list" value="Cancel">
 <input type="submit" name="sub_send" value="Send">
 <input type="submit" name="sub_include" value="Include">
@@ -1067,7 +1160,7 @@ sub cmd_add_header {
 <a href="$url_prefix/logout//add_header">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
 <h1 align="center">Add new headers</h1>
-<form>
+<form method="GET" action="$url_prefix/add_header">
 <h2>Choose from these common headers</h2>
 <select align="middle" name="header" multiple>
 <option value="Bcc" selected>Bcc
@@ -1135,7 +1228,7 @@ EOT
 	@header_list = grep { !$mandatory{$_} } @header_list;
 	if (@header_list) {
 	    $r->print(<<"EOT");
-<form>
+<form method="GET" action="$url_prefix/del_header">
 <h2>Choose which headers to remove</h2>
 <select align="middle" name="header" multiple>
 EOT
@@ -1339,7 +1432,8 @@ EOT
 <tr>
 <td><a href="$url_prefix/list">
   <img src="/icons/back.gif" border=0 alt="Back"></a></td>
-<td><img src="/icons/blank.gif" alt=" | "></td>
+<td><a href="$url_prefix/help/mailboxes">
+  <img src="/wing-icons/help.gif" border=0 alt="Help"></a></td>
 <td><a href="$url_prefix/logout//mailboxes">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
 </tr>
@@ -1835,87 +1929,6 @@ sub cmd_detach {
     return redirect($r, "$conn->{url_prefix}/attachments");
 }
 
-#
-# Here comes the relatively complex stuff for uploading and MIME attachments
-#
-use IO::Handle;
-use Mail::Header;
-use MIME::Parser;
-
-sub _CHUNK_SIZE () { 16384 }	# the chunk size in which we read upload data
-
-sub _receive_upload {
-    my ($r, $filename) = @_;
-    my $fh = IO::File->new(">$filename") or return "$filename: $!";
-    my $field = Mail::Field->new("Content-Type");
-    $field->parse($r->header_in("Content-Type"));
-    my $boundary = $field->param("boundary");
-    my $size = $r->header_in("Content-Length");
-    my $count = $size;
-    my $buffer;
-    my ($client_filename, $type);
-    return "upload of $count bytes exceeds size limit" if $count > 10*1024*1024;
-#    $r->warn("_receive_upload: client is sending us $count bytes");#debug
-    do {
-	my $toread = _CHUNK_SIZE;
-	if ($toread > $count) {
-	    $toread = $count;
-	}
-#	$r->warn("_receive_upload: trying to read $toread bytes"); # debug
-	$buffer = "";	# must reset $buffer or Apache::read appends to it
-	my $didread = $r->read($buffer, $toread);
-#	$r->warn("_receive_upload: read $didread bytes"); # debug
-	if ($didread == 0) {
-	    $fh->close;
-	    return "unexpected end of data";
-	}
-	if ($count == $size) {
-	    #
-	    # first buffer of all: remove the MIME boundary after checking it
-	    # and then parse and remove the headers.
-	    #
-	    if (substr($buffer, 0, length($boundary)+4) ne "--$boundary\r\n") {
-		$fh->close;
-		return "broken MIME boundary marker at start";
-	    }
-	    substr($buffer, 0, length($boundary) + 4) = "";
-	    if ($buffer !~ s/^(.*?\r\n\r\n)//s) {
-		$fh->close;
-		return "missing headers";
-	    }
-	    my $headers = $1;
-	    my $deb_headers = $headers;
-	    $deb_headers =~ s/\r/\\r/gs;
-	    $deb_headers =~ s/\n/\\n/gs;
-	    $r->warn("_receive_upload: MIME headers: $deb_headers");
-	    my $head = Mail::Header->new([split(/\r\n/, $headers)]);
-	    my $disp = $head->get("Content-Disposition");
-	    $client_filename = Mail::Field->new("Content-Disposition",
-						$disp)->filename;
-	    $type = $head->get("Content-Type");
-#	    $r->warn("_receive_upload: disp=$disp, client_filename=$client_filename, type=$type, size=$size");#debug
-	}
-#	$r->warn("_receive_upload: writing ", length($buffer), " bytes");#debug
-	print $fh $buffer;
-	$count -= $didread;
-    } while ($count > 0);
-
-    #
-    # check the trailing MIME boundary is OK
-    #
-    my $endlen = length($boundary) + 8;
-    if (substr($buffer, -$endlen) ne "\r\n--$boundary--\r\n") {
-	return "broken MIME boundary marker at end";
-    }
-    $fh->flush;
-    my $filesize = (stat($fh))[7];
-#    $r->warn("_receive_upload: filesize $filesize, truncating $endlen bytes to make ", $filesize - $endlen, " bytes");#debug
-    truncate($fh, $filesize - $endlen);
-    $fh->close;
-    $type =~ tr/\r\n//d;
-    return ("", $type, $client_filename);
-}
-
 sub cmd_attach {
     my $conn = shift;
     my $r = $conn->{request};
@@ -1967,7 +1980,7 @@ sub cmd_include {
 <a href="$url_prefix/logout//include">
   <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
 <h1 align="center">Include local file in message body</h1>
-<form method="POST" enctype="multipart/form-data">
+<form method="POST" action="$url_prefix/include" enctype="multipart/form-data">
 File <input align="middle" type="file" name="file">
 <br>
 <input type="submit" value="Include">
@@ -2020,18 +2033,6 @@ EOT
     return redirect($r, "$url_prefix/compose");
 }
 
-sub do_write_file {
-    my ($filename, $contents) = @_;
-    local(*FILE);
-    if (length($contents) == 0) {
-	return unlink($filename) || $! =~ /No such file/;
-    }
-    sysopen(FILE, $filename, O_CREAT|O_RDWR|O_TRUNC, 0664) or return undef;
-    print FILE $contents;
-    close(FILE);
-    return 1;
-}
-    
 sub cmd_export {
     my $conn = shift;
     my $r = $conn->{request};
@@ -2058,7 +2059,9 @@ sub cmd_export {
 	print $s "body $i\n";
 	chomp($size = <$s>);
 	read($s, my $body, $size);
-
+	if (substr($body, -1) ne "\n") {
+	    $body .= "\n"; # must ensure newline termination of message
+	}
 	$r->print($from_line, $headers, $body);
     }
 }
@@ -2203,7 +2206,7 @@ format ("Berkeley" format, also known as "Unix" format), use this button:
 <a href="$url_prefix/export">
   <img src="/wing-icons/export.gif" border=0 align="absmiddle" alt="Export"></a>
 <hr>  
-<form method="POST">
+<form method="POST" action="$url_prefix/manage">
 Forwarding address(es) (blank for no forwarding)
 <br>
 <input name="forward" size="50" value="$forward_html">
@@ -2288,7 +2291,8 @@ sub do_chpass {
     if ($result eq "OK") {
 	return undef;
     } else {
-        return "IMAP server refused to change password";
+        return "IMAP server refused to change password "
+		. "(probably because old password was incorrect)";
     }
 }
 
@@ -2337,7 +2341,7 @@ sub cmd_chpass {
 </table>
 <h2 align="center">Change password for $username</h2>
 <br><strong>$info_msg</strong><br>
-<form method="POST">
+<form method="POST" action="$url_prefix/chpass">
 <table>
   <tr>
     <td>Old password</td>
@@ -2354,9 +2358,7 @@ sub cmd_chpass {
 <input type="submit" name="change_password" value="Change password">
 <input type="submit" name="cancel" value="Cancel">
 </form>
-OUCS information on
-<a href="http://www.oucs.ox.ac.uk/registration/password_security.html">
-password security</a> is available.
+$PASSWORD_INFO
 </body></html>
 EOT
 }
@@ -2557,7 +2559,7 @@ EOT
 </table>
 <br><strong>$info_msg</strong><br>
 <h2 align="center">Options</h2>
-<form method="POST">
+<form method="POST" action="$url_prefix/options">
 Number of messages listed in one screenful.
 Enter 0 to list all messages on one screen.
 <br>
@@ -2618,5 +2620,8 @@ EOT
     $r->send_fd(\*HELP);
     close(HELP);
 }
+
+use Wing::Abook;	# Wing::Connection handlers for address books
+use Wing::Portal;	# Wing::Connection handlers for portal stuff
 
 1;

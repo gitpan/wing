@@ -9,6 +9,7 @@
 # This program may be distributed under the GNU General Public License (GPL)
 #
 # 25 Aug 1998  Copied from development system to main cluster.
+# 23 Feb 1999  Release version 0.5
 #
 use IO::Socket;
 use Mail::Cclient qw(set_callback);
@@ -179,7 +180,6 @@ sub daemon {
 	opt_cwd => $DEFAULT_CWD,
 	opt_list_size => $DEFAULT_LINES_PER_PAGE,
 	opt_compose_headers => $DEFAULT_COMPOSE_HEADERS,
-	opt_abook_list => $username,
 	attachments => [],
 	attach_next => 1,
 	tmpdir => $tmpdir,
@@ -410,11 +410,11 @@ sub list {
 	$date =~ s/0(\d)/$1/g; # strip leading zeroes
 	my $display_address;
 	my $from = $env->from->[0];
-	if ($from->mailbox . '@' . $from->host eq $sender) {
+	if ($from && $from->mailbox . '@' . $from->host eq $sender) {
 	    my $to = _get_name_from($env->to->[0]);
 	    $display_address = $to ? "To $to" : "To (unknown recipient)";
 	} else {
-	    $display_address = _get_name_from($env->from->[0]) 
+	    $display_address = _get_name_from($from) 
 				|| _get_name_from($env->sender->[0])
 				|| "(Unknown sender)";
 	}
@@ -881,12 +881,11 @@ sub copy {
 # Address book support.
 # $conn->{abooks} is a ref to a list of abooks, each of the form
 #     [$id, $flags, $name]
-# ($flags & 1) indicates that the abook is in the (active) search path
-# ($flags & 2) indicates that the client owns the abook.
+# ($flags & ABOOK_ACTIVE) indicates the abook is in the (active) search path
+# ($flags & ABOOK_OWNED) indicates that the client owns the abook.
 #
 sub abook_add {
     my ($conn, $id, $flags, $name) = @_;
-    print "abook_add $id $flags $name\n"; # debug
     push(@{$conn->{abooks}}, [maild_decode($id, $flags, $name)]);
 }
 
@@ -899,7 +898,6 @@ sub abook_drop {
 # deprecated
 sub abook_update {
     my ($conn, $ix, $id, $flags, $name) = @_;
-    print "abook_update $ix $id $flags $name\n"; # debug
     $conn->{abooks}->[$ix] = [maild_decode($id, $flags, $name)];
 }
 
@@ -910,7 +908,6 @@ sub abook_flags {
 
 sub abook_reposition {
     my ($conn, $oldpos, $newpos) = @_;
-    print "abook_reposition $oldpos $newpos\n"; # debug
     my $abooks = $conn->{abooks};
     my $abook = splice(@$abooks, $oldpos, 1);
     splice(@$abooks, $newpos, 0, $abook);
@@ -920,12 +917,9 @@ sub lsabooks {
     my $conn = shift;
     my $abooks = $conn->{abooks};
     my $client = $conn->{client};
-    print "lsabooks\n"; # debug
     foreach my $abook (@{$conn->{abooks}}) {
 	my ($id, $flags, $name) = @$abook;
 	printf $client "%s %d %s\n", maild_encode($id, $flags, $name);
-	print "$id $flags $name\n"; # debug
     }
     print $client ".\n";
-    print ".\n"; # debug
 }

@@ -7,6 +7,8 @@
 #
 # This program may be distributed under the GNU General Public License (GPL)
 #
+# 23 Feb 1999  Release version 0.5
+#
 package Wing::Admin;
 use Apache::Constants qw(:common REDIRECT);
 use Socket;
@@ -125,47 +127,27 @@ sub get_stats {
     return \%stats;
 }
 
-sub cmd_stat {
-    my ($conn, $opt) = @_;
-    my $r = $conn->{request};
-    my $refresh = $conn->{refresh};
-    chomp(my @hosts = `/usr/local/sbin/clist`);
-    unshift(@hosts, qw(frontend1 frontend2));
-    my %stats;
-    my $timestamp = localtime(time);
-    substr($timestamp, -5) = "";	# remove trailing " yyyy"
-    foreach my $h (@hosts) {
-	$stats{$h} = get_stats($h);
-    }
-    my @keys = qw(freemem load1 load5 load15 mailq httpd maild imapd);
-    $r->content_type("text/html");
-    $r->header_out(Refresh => $refresh) if $refresh;
-    $r->send_http_header;
-    $r->print(<<"EOT");
-<html><head><title>Current cluster status</title></head>
-<body>
-<h2 align="center">Current cluster status as of $timestamp</h2>
+sub stat_table {
+    my ($hosts, $keys, $stats) = @_;
+    my $html = <<"EOT";
 <table border cellpadding=7>
 <tr>
   <th>Hostname</th>
   <th align="right">Mem</th>
   <th colspan=3>Load average</th>
   <th align="right">Mailq</th>
-  <th align="right">httpd</th>
-  <th align="right">maild</th>
-  <th align="right">imapd</th>
-</tr>
 EOT
-    foreach my $h (@hosts) {
-	my ($freemem, $load1, $load5, $load15, $mailq, $httpd, $maild, $imapd)
-	    = @{$stats{$h}}{@keys};
+    $html .= join("\n", map { qq(<th align="right">$_</th>) } @$keys)
+	. "\n</tr>\n";
+    my @main_keys = qw(freemem load1 load5 load15 mailq);
+    foreach my $h (@$hosts) {
+	my $st = $stats->{$h};
+	my ($freemem, $load1, $load5, $load15, $mailq) = @{$st}{@main_keys};
 	$freemem = ($freemem == -1) ? "?" : int($freemem / 1024 + 0.5);
 	$load1 = sprintf("%.2f", $load1 / 100);
 	$load5 = sprintf("%.2f", $load5 / 100);
 	$load15 = sprintf("%.2f", $load15 / 100);
-	$httpd = "" unless $httpd > 0;
-	$maild = "" unless $maild > 0;
-	$r->print(<<"EOT");
+	$html .= <<"EOT";
 <tr>
   <td>$h</td>
   <td align="right">$freemem</td>
@@ -173,13 +155,47 @@ EOT
   <td align="right">$load5</td>
   <td align="right">$load15</td>
   <td align="right">$mailq</td>
-  <td align="right">$httpd</td>
-  <td align="right">$maild</td>
-  <td align="right">$imapd</td>
-</tr>
 EOT
+	foreach my $k (@$keys) {
+	    $html .= qq(<td align="right">$st->{$k}</td>\n);
+	}
+	$html .= "</tr>\n";
     }
-    $r->print("</table></body></html>\n");
+    $html .= "</table>\n";
+    return $html;
+}
+
+sub cmd_stat {
+    my ($conn, $opt) = @_;
+    my $r = $conn->{request};
+    my $refresh = $conn->{refresh};
+    chomp(my @imap_hosts = `/usr/local/sbin/clist imap`);
+    chomp(my @wing_hosts = `/usr/local/sbin/clist wing`);
+    my @hosts = ("frontend1", "frontend2", @imap_hosts, @wing_hosts);
+    my %stats;
+    my $timestamp = localtime(time);
+    substr($timestamp, -5) = "";	# remove trailing " yyyy"
+    foreach my $h (@hosts) {
+	$stats{$h} = get_stats($h);
+    }
+    my @frontend_keys = qw(httpd postgres);
+    my @imap_keys = qw(imapd ipopd);
+    my @wing_keys = qw(httpd maild);
+    $r->content_type("text/html");
+    $r->header_out(Refresh => $refresh) if $refresh;
+    $r->send_http_header;
+    $r->print(<<"EOT");
+<html><head><title>Current $WING_SERVICE_NAME status</title></head>
+<body>
+<h2 align="center">Current $WING_SERVICE_NAME status as of $timestamp</h2>
+<h3>Frontends</h3>
+EOT
+    $r->print(stat_table(["frontend1", "frontend2"], \@frontend_keys, \%stats));
+    $r->print("<h3>WING servers</h3>\n");
+    $r->print(stat_table(\@wing_hosts, \@wing_keys, \%stats));
+    $r->print("<h3>IMAP servers</h3>\n");
+    $r->print(stat_table(\@imap_hosts, \@imap_keys, \%stats));
+    $r->print("</body></html>\n");
 }
 
 sub cmd_du {
@@ -263,4 +279,50 @@ EOT
     $r->print("</table>\nTotal usage: $total KB\n</body></html>\n");
 }
 
+sub cmd_finger {
+    my ($conn, $username) = @_;
+    my $r = $conn->{request};
+    my %q = $r->args;
+    $username ||= $q{username};
+
+    if (!$username) {
+	$r->content_type("text/html");
+	$r->send_http_header;
+	$r->print(<<"EOT");
+<html><head><title>Finger</title></head>
+<body>
+<h2 align="center">Finger</h2>
+<form>
+Username <input name="username" size=8>
+<input type="submit" value="Finger">
+</form>
+</body>
+</html>
+EOT
+	return;
+    }
+
+    my $html = finger($username);
+    if (!defined($html)) {
+	$r->content_type("text/plain");
+	$r->send_http_header;
+	$r->print("Bad username: $username\n");
+	return;
+    }
+
+    $r->content_type("text/html");
+    $r->send_http_header;
+    $r->print(<<"EOT");
+<html><head><title>Finger information for $username</title></head>
+<body>
+<form>
+Username <input name="username" value="$username" size=8>
+<input type="submit" value="Finger">
+</form>
+<h2 align="center">Finger information for $username</h2>
+$html
+</body>
+</html>
+EOT
+}
 1;

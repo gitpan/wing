@@ -1,4 +1,4 @@
-		   WING - Web IMAP/NNTP Gateway, version 0.6
+		   WING - Web IMAP/NNTP Gateway, version 0.8
 
 		  Copyright (C) 1998, 1999 by Malcolm Beattie
 
@@ -35,6 +35,16 @@ IMAP server via any web browser. Some features of WING are:
    "From:" header cannot be changed or forged for outgoing messages
    from WING.
  * WING is scalable up to thousands and tens of thousands of users.
+
+WING 0.8 introduces the following features:
+ * Users can import address books by uploading them via their browser
+   (only Pine format address books supported in this version).
+ * Users can create their own links (bookmarks), presented in a
+   hierarchical list which can be folded/unfolded.
+ * Users can login using a "portal" view which provides a frame down
+   the left hand side of the browser containing site-configurable
+   links along with their personal links. This is the only part of
+   WING which requires frame support from the browser.
 
 When integrated with a mail cluster similar to the one we have here
 at Oxford University, WING also has these features:
@@ -126,9 +136,11 @@ should work OK the way WING uses it.
 
 On the frontend, install PostgreSQL. You may be able to use another
 SQL database, but
- (1) it must support transactions (this rules out MySQL)
+ (1) it must support transactions (this rules out MySQL unless
+     someone rewrites Wing::Login in a way which doesn't require
+     transactions).
  (2) it must support using ident lookups for authentication (or else
-     you will have to alter the security model and associated code.)
+     you will have to tweak the DBI connection setup).
 
 Create a database for wing. I'll assume that Apache runs under the
 username "httpd". Create database users "httpd" and "root". Note
@@ -155,7 +167,7 @@ init.d boot time script is wing.init which can be copied to
 you don't have a SysV flavoured boot configuration, tweak it yourself.
 
 Install Wing. If you use the RPM, fine. If you're not you'll have to:
- * copy Wing.pm Wing/*.pm to your Perl site_perl directory
+ * copy Wing.pm Outline.pm Wing/*.pm to your Perl site_perl directory
  * copy wing-icons/* to the wing-icons subdirectory of your Apache
    root directory
  * copy help/* to the wing-help subdirectory of your Apache root
@@ -246,15 +258,6 @@ the list, mail to wing-admin@maillist.ox.ac.uk.
 Good luck. You'll need it. It is rather good when it all works though.
 
 
-BUGS
-
-Address books haven't been thoroughly tested yet.
-
-A few (untested) minor changes have been made to turn some
-site-specific parts of Wing into generic configurable items.
-There may be bugs floating somewhere.
-
-
 AUTHOR
 
 Malcolm Beattie
@@ -263,3 +266,6 @@ mbeattie@sable.ox.ac.uk
 
 Version 0.6, first public release
 5 February 1999
+
+Version 0.8, second public release
+1 June 1999

@@ -6,8 +6,7 @@ The address book list screen looks something like this:
 <tr>
 <td><img src="/icons/back.gif" border=0 alt="Back"></td>
 <td><img src="/wing-icons/help.gif" border=0 alt="Help"></td>
-<td><img src="/wing-icons/address-search.gif" border=0 alt="Address Search">
-</td>
+<td><img src="/wing-icons/address-search.gif" border=0 alt="Address Search"></td>
 <td><img src="/wing-icons/logout.gif" border=0 alt="Logout"></td>
 </tr>
 </table>
@@ -86,12 +85,17 @@ that you own.</li>
 <li>Click on
 <img src="/wing-icons/delete.gif" border=0 align="absmiddle" alt="Delete">
 to delete an address book that you own.
-The data in a deleted address book cannot be recovered.</li>
+Note that there is no confirmation request and the data in a deleted
+address book cannot be recovered. You cannot delete your original
+"personal" address book.</li>
 </ul>
 <h3>Creating/adding address books to the list</h3>
 <ul>
 <li>To create a new address book, enter a name for it in the "Address book"
-field and press the "Create/Add to list" button.</li>
+field and press the "Create/Add to list" button.
+Address book names must be between 1 and 63 characters. Legal characters
+are alphanumeric (A-Z, a-z, 0-9), spaces or those in the set
+"!$%^*()+=;@~#?.,-" (quotes excluded).</li>
 <li>To include an address book owned by another user in the above table,
 enter its full name in the "Address book" field in the form
 <tt>username/address_book_name</tt> and press the "Create/Add to list"

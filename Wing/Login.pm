@@ -9,7 +9,9 @@
 #
 # 25 Aug 1998  Copied from development system to main cluster.
 # 15 Sep 1998  Changes for Herald.
-#  5 Feb 1999  Generic initial_mailbox($username) for finding IMAP server.
+# 23 Feb 1999  Release version 0.5
+# 18 Mar 1999  Fold in generic initial_mailbox($username) for finding
+#              user's IMAP server.
 #
 package Wing::Login;
 use Apache::Constants qw(:common REDIRECT);
@@ -165,19 +167,33 @@ EOT
     #
     # Sanity-check username
     #
-    if (length($username) > 8 || $username =~ /\W/) {
+    if ($username eq "" || length($username) > 8
+	|| $username =~ /\W/ || $username ne lc($username))
+    {
 	my $login_url = login_url();
 	$r->content_type("text/html");
 	$r->send_http_header;
-	$r->print(<<'EOT');
+	$r->print(<<"EOT");
 <html><head><title>Login failed</title></head>
 <body><h1>Login failed</h1>
 An illegal username was entered: please correct and
 <a href="$login_url">retry login</a>.
+<p>
+Remember that usernames and passwords are case sensitive.
 </body></html>
 EOT
 	return OK;
     }
+
+    #
+    # Find session type. For now we support two types of session:
+    # portal and normal.
+    #
+    my $sess_type = $in{sess_type};
+    if ($sess_type ne "portal") {
+	$sess_type = "";
+    }
+
     my $full_spec = initial_mailbox($username);
 
     #
@@ -217,9 +233,9 @@ EOT
 	return login_incorrect($r);
     }
     $r->header_out("Set-Cookie" => make_wing_cookie($username, $session));
-    return redirect($r, sprintf("http://%s/wing/cmd/%s/%s/check-cookie",
+    return redirect($r, sprintf("http://%s/wing/cmd/%s/%s/check-cookie/%s",
 				$r->server->server_hostname, $username,
-				$session));
+				$session, $sess_type));
 }
 
 1;

@@ -10,6 +10,8 @@
 # 17 Sep 1998  Initial version.
 # 07 Oct 1998  Does login screen itself instead of redirecting to wing servers.
 #              This avoids people bookmarking wing server URLs.
+# 23 Feb 1999  Release version 0.5
+# 18 Mar 1999  Separate out login banner for non-Oxford release
 #
 #
 # Redirect queries to a live WING server. Reads list of live servers
@@ -97,6 +99,9 @@ sub handler {
 <form action="$action" method="POST">
 <table cellpadding=5>
 <tr>
+  <td rowspan=3>
+    $LOGIN_LOGO
+  </td>
   <td>Username</td>
   <td><input name="username" value="$username" size=8 maxlength=8></td>
 </tr>

@@ -14,6 +14,7 @@
 #              ready for public non-Oxford release.
 #  1 Jun 1999  Rearranged in preparation for public release
 #  1 Jun 1999  Anonymised for public release 0.8
+#  7 Aug 2001  Added support for per-port security options
 #
 #
 # Data shared between Wing.pm and maild (and some assorted constants
@@ -32,7 +33,7 @@ no strict;
 	     &maild_get &maild_set &maild_get_and_reset &maild_reset
 	     &canon_encode &canon_decode %header_is_address
 	     $WING_SERVICE_NAME $WING_DOMAIN $IMAPDU_COMMAND
-	     $SENDMAIL_COMMAND $SENDMAIL_FROM_HOSTNAME
+	     $SENDMAIL_COMMAND $SENDMAIL_FROM_HOSTNAME $ICON_HOSTNAME $ICON_DIR
 	     @WING_DBI_CONNECT_ARGS &make_wing_cookie &login_url
 	     $MOTD_PATH &wing_directory $FORWARD_FILE
 	     $VACATION_MESSAGE_FILE $VACATION_ACTIVE_FILE @VACATION_DB_FILES
@@ -40,8 +41,11 @@ no strict;
 	     &is_legal_abook_name $LEGAL_ALIAS_RULES $LEGAL_ABOOK_RULES
 	     $SENT_MAIL_MAILBOX $DISK_QUOTA $LOGIN_TITLE $LOGIN_LOGO
 	     &initial_mailbox $UPLOAD_SIZE_LIMIT $ABOOK_IMPORT_SIZE_LIMIT
+	     $NEW_ABOOK_ID_EXPR
 	     $LINKS_FILE $DEFAULT_LINKS $LINKS_TEMPLATE $MAX_LINKS_LENGTH
-	     $LINKS_LOGO $PASSWORD_INFO);
+	     $LINKS_LOGO $PASSWORD_INFO $CAL_PATH @MONTH_NAME
+	     %PORT_SECURITY_OPTIONS &port_requires_ip_check
+	     &port_requires_cookies &port_sets_secure_cookie);
 
 #
 # Configure the following as necessary
@@ -118,6 +122,23 @@ $IMAPDU_COMMAND = "/usr/local/bin/imapdu";
 #
 $SENDMAIL_FROM_HOSTNAME = $WING_DOMAIN;
 
+# This is the hostname of the icon server which can be separated from
+# the wing servers for performance reasons. (Serving icons only needs
+# a lightweight Apache instead of a bulky mod_perl-enabled one). If
+# you don't have a separate icon (virtual) server, set this to be
+# undef or "" and icons will be fetched from the WING servers.
+#
+$ICON_HOSTNAME = "icon-s.$WING_DOMAIN";
+
+#
+# This is the directory where WING icons are to be found on the icon server.
+# More precisely, a URL is formed with server_url() (see Wing::Util)
+# from $ICON_HOSTNAME (or, failing that, the WING server's name) and
+# $ICON_DIR is appended to that to get the wing-icons directory.
+#
+$ICON_DIR = "/wing-icons";
+
+#
 #
 # This is the DBI database spec name, username and password field
 # of the WING database which holds session and address book information.
@@ -191,6 +212,11 @@ $UPLOAD_SIZE_LIMIT = 10 * 1024 * 1024;
 # The size limit (in bytes) of a file uploaded for address book import
 #
 $ABOOK_IMPORT_SIZE_LIMIT = 200 * 1024;
+
+#
+# SQL expression to get new abook id
+#
+$NEW_ABOOK_ID_EXPR = "nextval('abook_ids_seq')";
 
 #
 # The filename in the ~/wing directory that holds an Outline.pm format
@@ -300,9 +326,12 @@ $MAILD_TMPDIR = $ENV{TMPDIR} || "/tmp";
 # This generates the Set-Cookie content for a WING cookie
 #
 sub make_wing_cookie {
-    my ($username, $session, $expires) = @_;
+    my ($username, $session, $secure, $expires) = @_;
     my $cookie =
 	"$username=$session; path=/wing/cmd/$username; domain=$WING_DOMAIN";
+    if ($secure) {
+	$cookie .= "; secure";
+    }
     if (defined($expires)) {
 	$cookie .= "; expires=$expires";
     }
@@ -318,16 +347,20 @@ sub login_url {
     return ($WING_DOMAIN, $path_info);
 }
 
-
 #
 # This function determines whether a string is syntactically a legal
 # alias (i.e. it can be held in an address book, used in SQL without
 # quoting and doesn't have an @). For safety, we restrict it even
-# further.
+# further. We require a leading letter since a pure number will
+# confuse the underlying SQL.pm module into using the wrong datatype
+# (and requiring a leading letter is a sane requirement anyway).
 #
 sub is_legal_alias {
     my $alias = shift;
-    if (length($alias) > 0 && length($alias) < 64 && $alias !~ /[^\w.-]/) {
+    if (length($alias) > 0 && length($alias) < 64 
+	&& $alias !~ /[^\w.-]/
+	&& $alias =~/^[A-Za-z]/) 
+    {
 	return 1;
     }
     return 0;
@@ -337,20 +370,24 @@ sub is_legal_alias {
 # This variable holds an HTML description of the above rule
 #
 $LEGAL_ALIAS_RULES = <<'EOT';
-Aliases must be between 1 and 63 characters long and contain only
-the characters A-Z, a-z, 0-9, "." and "-".
+Aliases must be between 1 and 63 characters long, begin with a letter 
+(A-Z or a-z) and contain only the characters A-Z, a-z, 0-9, "." and "-".
 EOT
 
 #
 # This function determines whether an address book name is legal.
 # We're fairly strict but allow most reasonable names. We omit ":"
 # so that we can use it to separate fields in the abooklist column
-# of the options table.
+# of the options table. We require a leading letter since a pure
+# number will confuse the underlying SQL.pm module into using the
+# wrong datatype (and requiring a leading letter is a sane requirement
+# anyway).
 #
 sub is_legal_abook_name {
     my $abook = shift;
     if (length($abook) > 0 && length($abook) < 64
-	&& $abook !~ /[^\w !$%^*()+=;@~#?.,-]/)
+	&& $abook !~ /[^\w !$%^*()+=;@~#?.,-]/
+	&& $abook =~ /^[A-Za-z]/)
     {
 	return 1;
     }
@@ -361,11 +398,45 @@ sub is_legal_abook_name {
 # This variable holds an HTML description of the above rule
 #
 $LEGAL_ABOOK_RULES = <<'EOT';
-Address book names must be between 1 and 63 characters long and contain only
-the characters A-Z, a-z, 0-9, space, "!", "$", "%", "^", "*", "(", ")", "+",
-"=", ";", "@", "~", "#", "?", ".", ",", and "-".
+Address book names must be between 1 and 63 characters long, begin with a
+letter (A-Z or a-z) and contain only the characters A-Z, a-z, 0-9, space,
+"!", "$", "%", "^", "*", "(", ")", "+", "=", ";", "@", "~", "#", "?",
+".", ",", and "-".
 EOT
 
+#
+# Path to cal (the usual one: takes args "month year" and prints to
+# stdout a calendar for that month in the usual format. Ensure you
+# use the full pathname: if you don't, Perl will be forced to invoke
+# a shell to run the program and that can interfere with Apache's use
+# of SIGCLD (or something like that) resulting in occasional return
+# codes of 1 from cal and hence blank calendar months appearing.
+#
+$CAL_PATH = "/usr/bin/cal";
+
+#
+# Month names to appear on calendar screen (on drop down list and in
+# "Today is..."). cal itself is responsible for the month names in the
+# calendar output.
+#
+@MONTH_NAME = qw(January February March April May June July
+		 August September October November December);
+
+#
+# Constants for port security flags
+#
+sub REQUIRE_IP_CHECK () { 0x1 }
+sub REQUIRE_COOKIES () { 0x2 }
+sub SET_SECURE_COOKIE () { 0x4 }
+
+#
+# Port security configuration. Determine which security checks are
+# performed for connections on different ports
+#
+%PORT_SECURITY_OPTIONS = 
+	(default => REQUIRE_IP_CHECK,
+	 443     => REQUIRE_COOKIES | SET_SECURE_COOKIE
+	 );
 
 #
 # End of user serviceable parts. Don't change anything below. If you
@@ -474,5 +545,36 @@ sub canon_decode {
 #
 sub ABOOK_ACTIVE () { 0x1 }
 sub ABOOK_OWNED () { 0x2 }
+
+#
+# Subroutines for testing per-port security configuration
+#
+
+sub port_requires_ip_check {
+    my $port = shift;
+    my $options = $PORT_SECURITY_OPTIONS{$port};
+    unless (defined($options)) {
+	$options = $PORT_SECURITY_OPTIONS{default};
+    }
+    return ($options & REQUIRE_IP_CHECK);
+}
+
+sub port_requires_cookies {
+    my $port = shift;
+    my $options = $PORT_SECURITY_OPTIONS{$port};
+    unless (defined($options)) {
+	$options = $PORT_SECURITY_OPTIONS{default};
+    }
+    return ($options & REQUIRE_COOKIES);
+}
+
+sub port_sets_secure_cookie {
+    my $port = shift;
+    my $options = $PORT_SECURITY_OPTIONS{$port};
+    unless (defined($options)) {
+	$options = $PORT_SECURITY_OPTIONS{default};
+    }
+    return ($options & SET_SECURE_COOKIE);
+}
 
 1;

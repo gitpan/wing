@@ -12,6 +12,8 @@
 # 23 Feb 1999  Release version 0.5
 # 18 Mar 1999  Fold in generic initial_mailbox($username) for finding
 #              user's IMAP server.
+# 10 Jul 2000  Add extra sanity check to ensure username is not all digits
+#  6 Jul 2001  RM - Added support for per-port security options
 #
 package Wing::Login;
 use Apache::Constants qw(:common REDIRECT);
@@ -56,8 +58,8 @@ sub contact_maild {
     return $s;
 }
     
-sub create_session ($$$) {
-    my ($r, $password, $folder) = @_;
+sub create_session ($$$$) {
+    my ($r, $password, $folder, $port) = @_;
     my $session = make_session_id();
     if (!defined($session)) {
 	$r->warn("make_session_id failed, errno indicates: $!");
@@ -68,19 +70,28 @@ sub create_session ($$$) {
     # since it's a crypto-random 120-bit quantity, we don't bother.
     my $s = contact_maild($r) or return undef;
     print $s join("\n", $MAILD_PROTOCOL_VERSION,
-		  $session, $username, $password, $host, $folder), "\n";
+		  $session, $username, $password, $host, $folder,
+		  port_requires_ip_check($port)), "\n";
     chomp($pid = <$s>);
+    close($s);
     if ($pid eq "NO") {
 	return undef; # authentication failed
     }
-    close($s);
+    if ($pid eq "") {
+	# maild exited without writing a PID down the connection
+	return "*busy";
+    }
+    if ($pid + 0 ne $pid) {
+	# weird error: the pid isn't an ordinary number
+	return "*badpid";
+    }
     $id = $session;
     $start = 'now';
     $server = $r->server->server_hostname;
     eval { sql_insert(*id, *start, *username, *host, *server, *pid) };
     if ($@) {
 	$r->warn("create_session: $@");
-	return undef;
+	return "*badinsert";
     }
     return $session;
 }
@@ -90,13 +101,14 @@ sub create_session ($$$) {
 # spec {$host}INBOX (i.e. it should be a POP or IMAP spec).
 # Returns true if the user authenticates successfully, false otherwise.
 #
-sub authenticate_only ($$$) {
-    my ($r, $password, $mailbox) = @_;
+sub authenticate_only ($$$$) {
+    my ($r, $password, $mailbox, $port) = @_;
     my $s = contact_maild($r) or return undef;
     print $s join("\n", $MAILD_PROTOCOL_VERSION,
-		  "*authonly", $username, $password, $host, $mailbox), "\n";
+		  "*authonly", $username, $password, $host, $mailbox,
+		  port_requires_ip_check($port)), "\n";
     chomp($pid = <$s>);
-    $r->warn("authonly login for $username for $mailbox returned $pid\n");#debug
+    $r->warn("authonly login for $username for $mailbox returned $pid\n"); #debug
     close($s);
     return $pid ne "NO";
 }
@@ -116,13 +128,29 @@ EOT
     return OK;
 }
 
-sub already_logged_in ($$$) {
+sub server_busy ($) {
+    my ($r) = @_;
+    my ($host, $path_info) = login_url($username);
+    my $login_url = server_url($r, $host) . $path_info;
+    $r->content_type("text/html");
+    $r->send_http_header;
+    $r->print(<<"EOT");
+<html><head><title>Server busy</title></head>
+<body><h1>Server busy</h1>
+Please <a href="$login_url">try again</a>.
+</body></html>
+EOT
+    return OK;
+}
+
+sub already_logged_in ($$$$) {
     #
     # Handle a user who is already logged in with another session.
     # Authenticate them and then tell them about it.
     #
-    my ($r, $password, $mailbox) = @_;
-    authenticate_only($r, $password, $mailbox) or return login_incorrect($r);
+    my ($r, $password, $mailbox, $port) = @_;
+    authenticate_only($r, $password, $mailbox, $port) 
+	or return login_incorrect($r);
     #
     # Convert the dotted quad IP address of the client (as held by
     # the sessions database) and convert it into a FQDN (if possible).
@@ -130,7 +158,8 @@ sub already_logged_in ($$$) {
     my $client = inet_aton($host);
     $client = gethostbyaddr($client, AF_INET) if $client;
     $client ||= $host; # fall back to dotted quad
-    
+
+    my $kill_url = server_url($r, $server) . "/wing/kill/$username/$id";
     dont_cache($r, "text/html");
     $r->print(<<"EOT");
 <html><head><title>Already logged in</title></head>
@@ -138,7 +167,7 @@ sub already_logged_in ($$$) {
 You already have a WING session open from $client, logged in at
 $start. If you wish to forcibly log out that session (losing any
 draft message and attachments entered) then please click
-<a href="http://$server/wing/kill/$username/$id">here</a>.
+<a href="$kill_url">here</a>.
 </body></html>
 EOT
     return OK;
@@ -146,6 +175,7 @@ EOT
 
 sub handler {
     my $r = shift;
+    my ($port) = sockaddr_in($r->connection->local_addr);
     my %in = $r->content; # note that we only accept POSTed data
     $username = $in{username};
     my $password = $in{password};
@@ -160,12 +190,13 @@ sub handler {
 	#
 	# Generate the login screen
 	#
+	my $login_url = server_url($r, $WING_DOMAIN) . "/";
 	dont_cache($r, "text/html");
 	$r->print(<<"EOT");
 <html><head><title>Login access bypassed frontend</title>
 <body><h1 align="center">Login access bypassed frontend</h1>
 Please use the official URL
-<a href="http://$WING_DOMAIN/"><tt>http://$WING_DOMAIN/</tt></a>
+<a href="$login_url"><tt>$login_url</tt></a>
 to login.
 </body></html>
 EOT
@@ -175,7 +206,7 @@ EOT
     # Sanity-check username
     #
     if ($username eq "" || length($username) > 8
-	|| $username =~ /\W/ || $username ne lc($username))
+	|| $username =~ /\W/ || $username !~ /\D/ || $username ne lc($username))
     {
 	my ($host, $path_info) = login_url();
 	my $login_url = server_url($r, $host) . $path_info;
@@ -216,15 +247,15 @@ EOT
     # succeeds (bad: it means the user is already logged in) or (b)
     # the find fails and the subsequent session creation is done.
     #
-    sql_begin;
-    sql_do("lock table sessions");
+#XXX#    sql_begin;
+#XXX#    sql_do("lock table sessions");
     sql_select(*id, *start, *host, *server, *pid, username => $username);
     if (sql_fetch) {
-	sql_commit;
+#XXX#	sql_commit;
 	sql_sth->finish;
 	sql_disconnect;
 	#$r->warn("PID $$ disconnected from database: $username already logged in"); # debug
-	return already_logged_in($r, $password, $full_spec);
+	return already_logged_in($r, $password, $full_spec, $port);
     }
 
     #
@@ -233,15 +264,26 @@ EOT
     # so we try to create a session.
     #
     $host = $r->connection->remote_ip;
-    my $session = create_session($r, $password, $full_spec);
-    sql_commit;
+    my $session = create_session($r, $password, $full_spec, $port);
+#XXX#    sql_commit;
     sql_disconnect;
     #$r->warn("PID $$ disconnected from database: successful login"); # debug
-    if (!$session) {
+    if (!defined($session)) {
+	return login_incorrect($r);
+    }
+    if ($session eq "*busy") {
+	return server_busy($r);
+    }
+    if (substr($session, 0, 1) eq "*") {
+	# some other error
+	$r->warn("create_session failed and returned: $session");
 	return login_incorrect($r);
     }
     my $server_url = server_url($r);
-    $r->header_out("Set-Cookie" => make_wing_cookie($username, $session));
+    $r->header_out("Set-Cookie" => 
+		   make_wing_cookie($username, $session,
+				    port_sets_secure_cookie($port)));
+    $session = "x" if port_requires_cookies($port);
     return redirect($r,
 	"$server_url/wing/cmd/$username/$session/check-cookie/$sess_type");
 }

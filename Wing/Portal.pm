@@ -86,7 +86,7 @@ sub _linkline_to_html {
 }
 
 sub _parse_links {
-    my ($links_source, $url_prefix, $template) = @_;
+    my ($links_source, $url_prefix, $icon_prefix, $template) = @_;
     my $links = "<table>\n";
 
     my $o = Outline->new;
@@ -132,11 +132,11 @@ sub _parse_links {
 		my $img;
 		if ($open) {
 		    $img = <<"EOT";
-<img src="/icons/small-minus.gif" border=0 valign="middle" alt="- ">
+<img src="$icon_prefix/small-minus.gif" border=0 valign="middle" alt="- ">
 EOT
 		} else {
 		    $img = <<"EOT";
-<img src="/icons/small-plus.gif" border=0 valign="middle" alt="+ ">
+<img src="$icon_prefix/small-plus.gif" border=0 valign="middle" alt="+ ">
 EOT
 		}
 		chomp $img; # remove trailing \n before forthcoming </a>
@@ -145,7 +145,7 @@ EOT
 EOT
 	    } else {
 		$links .= <<"EOT";
-<img src="/icons/bullet.gif" border=0 valign="middle" alt="* "></td>
+<img src="$icon_prefix/bullet.gif" border=0 valign="middle" alt="* "></td>
 <td colspan="99">$item
 EOT
 	    }
@@ -163,6 +163,7 @@ sub cmd_links {
     my $s = $conn->{maild};
     my $portal = maild_get($s, "portal");
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     $template = $LINKS_TEMPLATE if $template eq "";
 
     print $s "username\n";
@@ -177,7 +178,8 @@ sub cmd_links {
         push(@links_source, "-", <LINKS>);
         close(LINKS);
     }
-    my $links = _parse_links(\@links_source, "$url_prefix/links", $template);
+    my $links = _parse_links(\@links_source, "$url_prefix/links",
+			     $icon_prefix, $template);
 
     my $header = $portal ? <<"EOT" : <<"EOT";
 <html>
@@ -192,18 +194,18 @@ sub cmd_links {
 $LINKS_LOGO
 </td>
 <td><a href="list/last">
- <img src="/wing-icons/mail.gif" border=0 align="absmiddle" alt="Mail"></a>
+ <img src="$icon_prefix/mail.gif" border=0 align="absmiddle" alt="Mail"></a>
 <p>
 <a href="edit_links">
-  <img src="/wing-icons/edit-links.gif"
+  <img src="$icon_prefix/edit-links.gif"
     border=0 align="absmiddle" alt="Edit Links"></a>
 <p>
 <a href="no_portal" target="_parent">
-  <img src="/wing-icons/no-portal.gif" border=0
+  <img src="$icon_prefix/no-portal.gif" border=0
     align="absmiddle" alt="No Portal"></a>
 <p>
 <a href="logout//list">
-  <img src="/wing-icons/logout.gif"
+  <img src="$icon_prefix/logout.gif"
     border=0 align="absmiddle" alt="Logout"></a>
 </td>
 </tr>
@@ -219,12 +221,12 @@ EOT
 <table>
 <tr>
 <td><a href="list/last">
-  <img src="/icons/back.gif" border=0 align="absmiddle" alt="Back"></a></td>
+  <img src="$icon_prefix/back.gif" border=0 align="absmiddle" alt="Back"></a></td>
 <td><a href="edit_links">
-  <img src="/wing-icons/edit-links.gif"
+  <img src="$icon_prefix/edit-links.gif"
     border=0 align="absmiddle" alt="Edit Links"></a></td>
 <td><a href="logout//list">
-  <img src="/wing-icons/logout.gif"
+  <img src="$icon_prefix/logout.gif"
     border=0 align="absmiddle" alt="Logout"></a></td>
 </tr>
 </table>
@@ -240,6 +242,7 @@ sub cmd_edit_links {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my $wingdir = wing_directory($s);
     my $portal = maild_get($s, "portal");
     my $rand = time() . rand(2<<30);
@@ -295,13 +298,13 @@ sub cmd_edit_links {
 <table>
 <tr>
 <td><a href="$url_prefix/$back">
-  <img src="/icons/back.gif" border=0 alt="Back"></a></td>
-<td><img src="/icons/blank.gif" alt=" | "></td>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a></td>
+<td><img src="$icon_prefix/blank.gif" alt=" | "></td>
 <td><a href="$url_prefix/help/edit_links">
-  <img src="/wing-icons/help.gif" border=0 alt="Help"></a></td>
-<td><img src="/icons/blank.gif" alt=" | "></td>
+  <img src="$icon_prefix/help.gif" border=0 alt="Help"></a></td>
+<td><img src="$icon_prefix/blank.gif" alt=" | "></td>
 <td><a href="$url_prefix/logout//edit_links">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a></td>
 </tr>
 </table>
 $info_msg

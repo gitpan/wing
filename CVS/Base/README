@@ -1,4 +1,4 @@
-		   WING - Web IMAP/NNTP Gateway, version 0.11
+		   WING - Web IMAP/NNTP Gateway, version 0.9
 
 		  Copyright (C) 1998, 1999 by Malcolm Beattie
 
@@ -89,9 +89,14 @@ firewalling, NFS, automount, named and exim. You have been warned.
 AVAILABILITY
 
 Wing is available from your favourite CPAN site as a tar ball
-    modules/by-authors/id/S/SI/SIMON/Wing-0.11.tar.gz
+    modules/by-authors/Malcolm_Beattie/wing-0.9.tar.gz
 its home site in tar.gz form
-    ftp://ftp.ox.ac.uk/pub/perl/Wing-0.11.tar.gz
+    ftp://ftp.ox.ac.uk/pub/perl/Wing-0.9.tar.gz
+or source RPM form
+    ftp://ftp.ox.ac.uk/pub/linux/SRPMS/wing-0.9-1.src.rpm
+or "binary" (noarch) RPM form for Red Hat 5.x Linux
+    ftp://ftp.ox.ac.uk/pub/linux/RPMS/noarch/wing-0.9-1.noarch.rpm
+
 
 INSTALLATION
 
@@ -138,9 +143,6 @@ directly with RPMs will, for the moment, have to get rpm2cpio and
 build them themselves. I will get around to releasing these modules
 to CPAN sometime. SQL has bugs involving string/number quoting but
 should work OK the way WING uses it.
-
-The CPAN bundle Bundle::WING will help you download and install
-these modules.
 
 On the frontend, install PostgreSQL. You may be able to use another
 SQL database, but
@@ -277,6 +279,3 @@ Version 0.8, second public release
 
 Version 0.9
 3 August 1999
-
-Version 0.11
-23 August 2001

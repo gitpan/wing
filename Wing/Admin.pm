@@ -157,7 +157,11 @@ EOT
   <td align="right">$mailq</td>
 EOT
 	foreach my $k (@$keys) {
-	    $html .= qq(<td align="right">$st->{$k}</td>\n);
+	    my $val = $st->{$k};
+	    if (!defined($val) || $val eq "" || $val == -1) {
+		$val = "&nbsp;";
+	    }
+	    $html .= qq(<td align="right">$val</td>\n);
 	}
 	$html .= "</tr>\n";
     }
@@ -171,16 +175,17 @@ sub cmd_stat {
     my $refresh = $conn->{refresh};
     chomp(my @imap_hosts = `/usr/local/sbin/clist imap`);
     chomp(my @wing_hosts = `/usr/local/sbin/clist wing`);
-    my @hosts = ("frontend1", "frontend2", @imap_hosts, @wing_hosts);
+    my @frontend_hosts = qw(frontend1 frontend2 newfrontend2);
+    my @hosts = (@frontend_hosts, @imap_hosts, @wing_hosts);
     my %stats;
     my $timestamp = localtime(time);
     substr($timestamp, -5) = "";	# remove trailing " yyyy"
     foreach my $h (@hosts) {
 	$stats{$h} = get_stats($h);
     }
-    my @frontend_keys = qw(httpd postgres);
-    my @imap_keys = qw(imapd ipopd);
-    my @wing_keys = qw(httpd maild);
+    my @frontend_keys = qw(httpd postgres raid var%);
+    my @imap_keys = qw(imapd ipopd raid var% x0% x1% x2% x3% x4% x5%);
+    my @wing_keys = qw(httpd maild var%);
     $r->content_type("text/html");
     $r->header_out(Refresh => $refresh) if $refresh;
     $r->send_http_header;
@@ -190,7 +195,7 @@ sub cmd_stat {
 <h2 align="center">Current $WING_SERVICE_NAME status as of $timestamp</h2>
 <h3>Frontends</h3>
 EOT
-    $r->print(stat_table(["frontend1", "frontend2"], \@frontend_keys, \%stats));
+    $r->print(stat_table(\@frontend_hosts, \@frontend_keys, \%stats));
     $r->print("<h3>WING servers</h3>\n");
     $r->print(stat_table(\@wing_hosts, \@wing_keys, \%stats));
     $r->print("<h3>IMAP servers</h3>\n");
@@ -230,8 +235,8 @@ EOT
     }
 
     my $dbh = DBI->connect(@WING_DBI_CONNECT_ARGS);
-    my ($uid, $gid) = $dbh->selectrow_array(
-        "select uid, gid from users where username = '$username'"
+    my ($uid, $gid, $quota) = $dbh->selectrow_array(
+        "select uid, gid, quota from users where username = '$username'"
     ) or return wing_error($r, "Can't find user/group id: $DBI::errstr");
 
     my ($group) = $dbh->selectrow_array(
@@ -264,6 +269,8 @@ Username <input name="username" value="$username" size=8>
 <input type="submit" value="Disk Usage">
 </form>
 <h2 align="center">Disk Usage for $username</h2>
+Quota $quota KB
+<p>
 <table>
 <tr><th align="right">Size/KB</th><th align="left">Mailbox</th></tr>
 EOT
@@ -323,6 +330,75 @@ Username <input name="username" value="$username" size=8>
 $html
 </body>
 </html>
+EOT
+}
+
+sub cmd_forward {
+    my ($conn, $username) = @_;
+    my $r = $conn->{request};
+    my $refresh = $conn->{refresh};
+    my %q = $r->args;
+    $username ||= $q{username};
+
+    if (!$username) {
+	$r->content_type("text/html");
+	$r->send_http_header;
+	$r->print(<<"EOT");
+<html><head><title>Forwarding Information</title></head>
+<body>
+<h2 align="center">Forwarding Information</h2>
+<form>
+Username <input name="username" size=8>
+<input type="submit" value="Forward">
+</form>
+</body>
+</html>
+EOT
+	return;
+    }
+
+    if ($username !~ /^\w{1,8}$/) {
+	$r->content_type("text/plain");
+	$r->send_http_header;
+	$r->print("Bad username: $username\n");
+	return;
+    }
+
+    my $dbh = DBI->connect(@WING_DBI_CONNECT_ARGS);
+    my ($gid) = $dbh->selectrow_array(
+        "select gid from users where username = '$username'"
+    ) or return wing_error($r, "Can't find user/group id: $DBI::errstr");
+
+    my ($group) = $dbh->selectrow_array(
+        "select name from groups where gid = $gid"
+    ) or return wing_error($r, "Can't map group id to name: $DBI::errstr");
+    $dbh->disconnect;
+
+    my $forward;
+    {
+	local($/) = undef; #slurp
+	local(*FORWARD);
+	open(FORWARD, "/imap/$group/$username/wing/forward");
+	$forward = <FORWARD>;
+	close(FORWARD);
+	$forward ||= "No forwarding address set";
+    }
+    my $forward_html = escape_html($forward);
+
+    $r->content_type("text/html");
+    $r->header_out(Refresh => $refresh) if $refresh;
+    $r->send_http_header;
+    $r->print(<<"EOT");
+<html><head><title>Forwarding Information for $username</title></head>
+<body>
+<form>
+Username <input name="username" value="$username" size=8>
+<input type="submit" value="Forward">
+</form>
+<h2 align="center">Forwarding Information for $username</h2>
+<p>
+$forward_html
+</p></body></html>
 EOT
 }
 1;

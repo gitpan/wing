@@ -1,0 +1,79 @@
+<!-- This file is auto-included as embedded HTML and is only a "body" -->
+<h2 align="center">Help for search screen</h2>
+The search screen looks something like this:
+<hr>
+<table>
+<tr>
+<td><img src="/wing-icons/back.gif" border=0 alt="Back"></td>
+<td><img src="/wing-icons/blank.gif" alt=" | "></td>
+<td><img src="/wing-icons/help.gif" border=0 alt="Help"></td>
+<td><img src="/wing-icons/blank.gif" alt=" | "></td>
+<td><img src="/wing-icons/logout.gif" border=0 alt="Logout"></td>
+</tr>
+</table>
+<h2 align="center">Search mailbox</h2>
+<form>
+Search current mailbox for messages which match all
+the following conditions:
+<table>
+<tr><td>Subject</td><td><input name="subject" size="40"></td></tr>
+<tr><td>Message text</td><td><input name="text" size="40"></td></tr>
+<tr><td>From</td><td><input name="from" size="40"></td></tr>
+<tr><td>To</td><td><input name="to" size="40"></td></tr>
+</table>
+<select name="type">
+<option value="new" selected>Only mark matching messages</option>
+<option value="and">Restrict search to currently marked messages</option>
+<option value="or">Mark matching messages in addition to those currently marked</option>
+</select>
+<br>
+<input type="submit" name="search" value="Search">
+</form>
+<hr>
+This screen lets you search through the current mailbox by looking
+for words that appear in message headers (<strong>Subject</strong>,
+<strong>From</strong> or <strong>To</strong>) or the entire
+<strong>Message text</strong> (consisting of all the headers and the
+body). Messages which match the text that you type are <em>Flagged</em>
+--they appear in the message list screen with an "F" beside them. All
+searching is done in a case insensitive way and a match is found if
+the exact text you type appears in the appropriate place in a
+message: there are no wildcards, pluses, minuses, fuzzy matching or
+anything complicated like that. Just type the text you want to find.
+<p>
+There is a drop down list from which you can select three variations
+of a basic search:
+<dl>
+<dt><strong>Only mark matching messages</strong></dt>
+<dd>
+This unflags all messages in the mailbox before starting the search.
+</dd>
+When the search is over, the only messages flagged are those which
+matched your search conditions. This is sometimes called a "new" search.
+<dt><strong>Restrict search to currently marked messages</strong></dt>
+<dd>
+With this variation chosen, only those messages already flagged will
+be looked at at all. This lets you restrict a previous search even
+further by only considering for matching those messages matching your
+previous condition. This is sometimes called an "and" search.
+</dd>
+<dt><strong>Mark matching messages in addition to those currently marked</strong></dt>
+<dd>
+With this option, messages matching your search conditions will be
+flagged, leaving any previously flagged messages with their flag
+intact. This lets you add more messages to a previous search. This is
+sometimes called an "or" search.
+</dd>
+</dl>
+<p>
+Once you press the <tt>Search</tt> button and the search is complete, you
+are returned to the message list screen with found messsages
+flagged with an "F". You can restrict or add messages by returning
+to the "Search" screen and choosing a "Restrict..." or "Mark ... in
+addition" search type.
+<p>
+On the message list screen you can also do bulk operations (delete,
+save, copy) on those flagged messages by using the drop down list box
+on the top right of that screen.
+</body></html>
+

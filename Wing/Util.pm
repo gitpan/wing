@@ -23,7 +23,7 @@ use strict;
 use vars qw(@ISA @EXPORT);
 @ISA = 'Exporter';
 @EXPORT = qw(&dont_cache &redirect &wing_error &info_message_html
-	     &finger &do_write_file &server_url);
+	     &finger &do_write_file &server_url &icon_prefix);
 
 #
 # Prevent browser from caching: a simple $r->no_cache(1) is insufficient.
@@ -154,6 +154,14 @@ sub server_url {
     }
     $hostname ||= $r->server->server_hostname;
     return "$scheme://$hostname$port";
+}
+
+sub icon_prefix {
+    my $r = shift;
+    if ($ICON_HOSTNAME) {
+	return server_url($r, $ICON_HOSTNAME) . $ICON_DIR;
+    }
+    return $ICON_DIR;
 }
 
 1;

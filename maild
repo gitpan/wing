@@ -11,6 +11,11 @@
 # 25 Aug 1998  Copied from development system to main cluster.
 # 23 Feb 1999  Release version 0.5
 # 17 Jun 1999  Add explicit Date header in sub sendmail
+# 31 Oct 2000  Date calculation for daylight savings didn't work properly
+#              so use rfc822_date from Mail::Cclient instead (needs
+#              version 1.1 or newer).
+# 26 Jul 2001  Added "notify" callback to support [TRYCREATE] functionality
+# 07 Aug 2001  Added support for per-port security options
 #
 use IO::Socket;
 use Mail::Cclient qw(set_callback);
@@ -23,9 +28,12 @@ sub handle;
 
 my $imap_error = "";	# holds the last error message from the IMAP server
 my $imap_info = "";	# holds the last info message from the IMAP server
+my $imap_notify = "";	# holds the last notify message from the IMAP server
 
 my @day_name = qw(Sun Mon Tue Wed Thu Fri Sat);
 my @month_name = qw(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec);
+
+my @search_found;	# message numbers matched during search
 
 open(PID_FILE, ">$MAILD_SOCKET_DIR/maild.pid");
 print PID_FILE "$$\n";
@@ -36,6 +44,7 @@ setpgrp; # while debugging, we're running in the foreground so
 	 # do this to stop current daemons getting keyboard interrupts
 
 $| = 1; # while debugging, flush out debug messages straight away
+open(STDERR, ">&STDOUT"); # Let's log warn messages too!
 
 my $s = IO::Socket->new(Domain => AF_UNIX,
 			Type => SOCK_STREAM,
@@ -73,15 +82,16 @@ sub daemon {
     chomp(my $password = <$s>);
     chomp(my $client_ip = <$s>);
     chomp(my $mailbox = <$s>);
-#    print "pid $$ version=$version, session=$session, username=$username, client_ip=$client_ip, mailbox=$mailbox\n"; # debug
+    chomp(my $require_ip_check = <$s>);
+#    print "pid $$ version=$version, session=$session, username=$username, client_ip=$client_ip, mailbox=$mailbox, require_ip_check=$require_ip_check\n"; # debug
     $0 = "maild ($username)";
-    set_callback
+    set_callback 
 	login => sub {
 	    my ($netmbx, $trial) = @_;
 	    print "login {$netmbx->{host}}$netmbx->{mailbox} as $username\n"; # debug
 	    return ($username, $password);
 	},
-	"log" => sub {
+        "log" => sub {
 	    my ($string, $type) = @_;
 	    if ($type eq "info") {
 		$imap_info = $string;
@@ -89,9 +99,17 @@ sub daemon {
 		$imap_error = $string;
 	    }
 	    my $time = substr(localtime, 4, 15);
-	    print "$time $type: $string\n"; # debug
+	    print "$time $type: $string\n" unless $type eq "info";
+	},
+	searched => sub {
+	    my ($mc, $msgno) = @_;
+	    push(@search_found, $msgno);
+	},
+        notify => sub {
+	    my ($stream, $string, $errflag) = @_;
+	    $imap_notify = $string;
 	};
-
+    
     #
     # Prepare to create the mailclient handle.
     # If $session is "*authonly" then we're only being asked to
@@ -189,6 +207,7 @@ sub daemon {
 	tmpdir => $tmpdir,
 	start => time,
 	sockname => $sockname,
+        require_ip_check => $require_ip_check,
     }, "Wing::Connection";
 
     #
@@ -211,7 +230,7 @@ sub daemon {
 
 package Wing::Connection;
 use Wing::Shared;
-use Mail::Cclient qw(set_callback);
+use Mail::Cclient qw(set_callback rfc822_date);
 use MIME::Entity;
 use Fcntl;
 use IO::Socket;
@@ -219,17 +238,32 @@ use IO::Socket;
 sub handle {
     my $conn = shift;
     my $client = $conn->{client};
+    my $mc = $conn->{mc};
+
+    #
+    # Update the atime on the socket so that admin tools can easily
+    # determine timeouts. Keep the mtime the same so that it
+    # indicates start of session.
+    #
+    utime(time, $conn->{start}, $conn->{sockname});
+
+    #
+    # Check that the connection to the IMAP server is still alive; if not,
+    # attempt to reconnect.
+    #
+    unless ($mc->ping) {
+	my $mailbox = $conn->{host_spec} . $conn->{folder};
+	warn "pid $$ session $conn->{session} ping failed: attempting to reconnect to $mailbox\n"; #debug
+	$imap_error = "";
+	unless ($mc->open($mailbox) && !$imap_error) {
+	    warn "pid $$ session $conn->{session} failed to open mailbox $mailbox\n"; #debug
+	}
+    }
+
     while(defined(my $cmd = <$client>)) {
         chomp $cmd;
 #	print "pid $$ session $conn->{session} got command '$cmd'\n";
 	my ($method, @args) = split(' ', $cmd);
-
-	#
-	# Update the atime on the socket so that admin tools can easily
-	# determine timeouts. Keep the mtime the same so that it
-	# indicates start of session.
-	#
-	utime(time, $conn->{start}, $conn->{sockname});
 
 	#
 	# Invoke the requested command
@@ -244,14 +278,23 @@ sub handle {
     }
 }
 
-sub check_client_ip {
-    my ($conn, $client_ip) = @_;
+sub check_port_security {
+    my ($conn, $client_ip, $port) = @_;
     my $client = $conn->{client};
-    if ($conn->{client_ip} eq $client_ip) {
+    
+#    warn "check_port_security: $client_ip port $port\n"; #debug
+    if (! $conn->{require_ip_check} && ! port_requires_ip_check($port)) {
+#	warn "check_port_security: skipping IP check\n"; #debug
 	print $client "OK\n";
-    } else {
-	warn "Security alert: connection to session of $conn->{username} "
-	    ."from $client_ip instead of $conn->{client_ip}\n";
+    } 
+    elsif ($conn->{require_ip_check} && port_requires_ip_check($port)
+	   && $conn->{client_ip} eq $client_ip) {
+#	warn "check_port_security: IP check passed\n"; #debug
+	print $client "OK\n";
+    }
+    else {
+#	warn "Security alert: check_port_security failed for connection "
+#	    ."to session of $conn->{username} from $client_ip port $port\n";
 	print $client "NO\n";
     }
 }
@@ -446,6 +489,11 @@ sub headers {
 	my $headers = $conn->{optlist_headers} || \@DEFAULT_DISPLAY_HEADERS;
 	$hdr = $mc->fetchheader($msg, $headers);
     }
+    #
+    # get rid of CRs and unwrap wrapped header lines so caller doesn't have to
+    #
+    $hdr =~ tr/\r//d;
+    $hdr =~ s/\n[ \t]+/ /sg;
     print $client length($hdr), "\n", $hdr;
 }
 
@@ -552,35 +600,72 @@ sub ls {
     print $client ".\n";
 }
 
-sub save {
-    my ($conn, $type, $seq, $folder) = @_;
-#    print "save $seq $folder\n"; # debug
-    my ($client, $mc, $host_spec) = @{$conn}{"client", "mc", "host_spec"};
-    $folder = maild_decode($folder);
-#    print "saving sequence $seq to folder $folder\n"; # debug
-    my $result;
-    if ($type ne "move") {
-	$type = "copy";
-    }
-    $result = $mc->$type($seq, $folder);
-    if ($result) {
-	print $client "OK\n";
-	return;
+sub _save_or_copy {
+    my ($mc, $type, $seq, $host_spec, $folder) = @_;
+#    print "_save_or_copy $type $seq $host_spec $folder\n";#debug
+    $imap_notify = "";
+    if ($mc->$type($seq, $folder)) {
+	return 1;
     }
     #
     # See if the IMAP server suggests we try creating it
     #
-    if ($imap_error =~ /^\[TRYCREATE\]/) {
+    if ($imap_notify =~ /^\[TRYCREATE\]/) {
 	#
 	# Try to create it and, if it that works, retry the save
 	#
-	$result = $mc->create("$host_spec$folder") && $mc->$type($seq, $folder);
+#	print "trying to create $host_spec$folder\n";#debug
+	if ($mc->create("$host_spec$folder") && $mc->$type($seq, $folder)) {
+	    return 1;	# success this time
+	}
     }
-    if ($result) {
-	print $client "OK\n";
+    return 0; # failed to copy/save
+}
+
+sub save {
+    my ($conn, $type, $seq, $folder) = @_;
+    my ($client, $mc, $host_spec) = @{$conn}{"client", "mc", "host_spec"};
+    $folder = maild_decode($folder);
+#    print "save $type $seq $folder\n";#debug
+
+    if ($type ne "move") {
+	$type = "copy";
+    }
+
+    if ($seq ne "flagged") {
+	if (_save_or_copy($mc, $type, $seq, $host_spec, $folder)) {
+	    print $client "OK\n";
+	} else {
+	    printf $client "NO %s\n", maild_encode($imap_error);
+	}
 	return;
     }
-    printf $client "NO %s\n", maild_encode($imap_error);
+
+    @search_found = ();
+    $mc->search("flagged");
+
+    while (defined(my $msgno = shift @search_found)) {
+	$mc->clearflag($msgno, "\\Flagged");
+	if (!_save_or_copy($mc, $type, $msgno, $host_spec, $folder)) {
+	    my $error = $imap_error;
+	    $mc->setflag($msgno, "\\Flagged");	# restore flag on failed msg
+	    printf $client "NO %s\n", maild_encode($error);
+	}
+    }
+    print $client "OK\n";
+}
+
+sub delete_flagged {
+    my $conn = shift;
+    my $mc = $conn->{mc};
+
+    @search_found = ();
+    $mc->search("flagged");
+
+    while (defined(my $msgno = shift @search_found)) {
+	$mc->clearflag($msgno, "\\Flagged");
+	$mc->setflag($msgno, "\\Deleted");
+    }
 }
 
 sub setflag {
@@ -771,26 +856,8 @@ sub sendmail {
     #
     # Add our own Date header. Without this, the MTA will add its own
     # but we won't have one to save if copy_outgoing is on.
-    # The tricky bit is calculating the timezone offset.
     #
-    my $sign = "+";
-    my $tweve_hours = 60 * 60 * 12;
-    my @loc = localtime($tweve_hours);
-    my @utc = gmtime($tweve_hours);
-    my $dmin = $loc[1] - $utc[1];
-    my $dhour = $loc[2] - $utc[2];
-    if ($dmin < 0) {
-	$dhour--;
-	$dmin += 60;
-    }
-    if ($dhour < 0) {
-	$sign = "-";
-	$dhour = -$dhour;
-    }
-    my ($sec, $min, $hour, $mday, $mon, $year, $wday) = localtime;
-    my $date = sprintf("%s, %02d %s %04d %02d:%02d:%02d %s%02d%02d",
-		       $day_name[$wday], $mday, $month_name[$mon],
-		       $year + 1900, $hour, $min, $sec, $sign, $dhour, $dmin);
+    my $date = rfc822_date();
     my $entity = MIME::Entity->build(Path => "$tmpdir/body",
 				     Filename => undef,
 				     Type => "text/plain",
@@ -831,14 +898,15 @@ sub sendmail {
     if ($conn->{opt_copy_outgoing}) {
 	my $text = $entity->as_string;
 	$text =~ s/\n/\r\n/g; # CRLF termination mandatory for mbx format
+	$imap_notify = "";
 	my $result = $mc->append("$host_spec$SENT_MAIL_MAILBOX", $text);
 	if (!$result) {
 	    #
 	    # Failed to append--maybe we just need to create it first
 	    #
-	    if ($imap_error =~ /^\[TRYCREATE\]/) {
+	    if ($imap_notify =~ /^\[TRYCREATE\]/) {
 		$result = $mc->create("$host_spec$SENT_MAIL_MAILBOX")
-			&& $mc->append("$host_spec$SENT_MAIL_MAILBOX", $text);
+		    && $mc->append("$host_spec$SENT_MAIL_MAILBOX", $text);
 	    }
 	}
 	if (!$result) {
@@ -919,7 +987,7 @@ sub abook_add {
 
 sub abook_drop {
     my ($conn, $ix) = @_;
-    print "abook_drop $ix\n"; # debug
+#    print "abook_drop $ix\n"; # debug
     splice(@{$conn->{abooks}}, $ix, 1);
 }
 
@@ -950,4 +1018,71 @@ sub lsabooks {
 	printf $client "%s %d %s\n", maild_encode($id, $flags, $name);
     }
     print $client ".\n";
+}
+
+#
+# Search
+#
+sub search {
+    my ($conn, $type, $target) = @_;
+    my $mc = $conn->{mc};
+    my $client = $conn->{client};
+
+    my ($text, $subject, $from, $to) = split(/"/, $target, 4);
+    $text = maild_decode($text);
+    $subject = maild_decode($subject);
+    $from = maild_decode($from);
+    $to = maild_decode($to);
+
+    for ($text, $subject, $from, $to) {
+	tr/\x20-\x7e\xa0-\xfe//cd;
+	tr/"//d;
+	$_ = substr($_, 0, 40);
+    }
+    @search_found = ();
+
+    my @currently_flagged;	# only needed for "and"-type searches
+
+    if ($type eq "new") {
+	$mc->clearflag("1:*", "\\Flagged");
+    } elsif ($type eq "and") {
+	$mc->search("flagged");
+	@currently_flagged = @search_found;
+	@search_found = ();
+    }
+    my @criteria;
+
+    push(@criteria, "flagged") if $type eq "and";
+    push(@criteria, qq(text "$text")) if length($text);
+    push(@criteria, qq(subject "$subject")) if length($subject);
+    push(@criteria, qq(from "$from")) if length($from);
+    push(@criteria, qq(to "$to")) if length($to);
+    my $imap_target = join("", @criteria);
+
+    $mc->search($imap_target);
+    my $count = @search_found;
+
+    my $result;
+
+    if ($type eq "and") {
+	#
+	# just reset flags on messages in @currently_flagged which
+	# were *not* found and put in @search_found.
+	#
+	my %found;
+	foreach my $msgno (@search_found) {
+	    $found{$msgno} = undef;
+	}
+	foreach my $msgno (@currently_flagged) {
+	    $mc->clearflag($msgno, "\\Flagged") unless exists $found{$msgno};
+	}
+	$result = "$count of the already marked messages matched";
+    } else {
+	foreach my $msgno (@search_found) {
+	    $mc->setflag($msgno, "\\Flagged");
+	}
+	$result = "$count message(s) matched and have been marked";
+	$result .= " in addition" if $type eq "or";
+    }
+    print $client "$result\n";
 }

@@ -2,7 +2,8 @@
 <h2 align="center">Help for message list screen</h2>
 The message screen looks something like this:
 <hr>
-<table width="100%">
+<form>
+<table width="100%" border=0 cellspacing=0 cellpadding=0>
 <tr>
 <td><img src="/wing-icons/help.gif" border=0 alt="Help"></td>
 <td><img src="/wing-icons/arrow-up.gif" border=0 alt="Prev"></td>
@@ -16,6 +17,26 @@ The message screen looks something like this:
 <td><img src="/wing-icons/purge.gif" border=0 alt="Purge"></td>
 <td><img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></td>
 <td><img src="/wing-icons/logout.gif" border=0 alt="Logout"></td>
+</tr></table>
+<table width="100%" border=0 cellpadding=0 cellspacing=0>
+<tr>
+<td><img src="/wing-icons/search.gif" border=0 alt="Search"></td>
+<td>
+ <img src="/wing-icons/calendar.gif" border=0 alt="Calendar"></td>
+<td align="right">
+<font size="-1">
+<select name="type">
+<option selected value="search">Search mailbox
+<option value="delete">Delete range
+<option value="undelete">Undelete range
+<option value="move">Save range
+<option value="copy">Copy range
+<option value="flag">Flag range
+</select>
+<input name="range" size="8">
+<input type="submit" value="Go">
+</font>
+</td>
 </tr>
 </table>
 <h1 align="center">Mailbox `foo' with 3 messages</h1>
@@ -52,11 +73,14 @@ The message screen looks something like this:
 <ul>
 <li>Clicking on a message subject displays it</li>
 <li> Letters to the left of each line indicate when the message
-is tagged as (N)ew, (O)ld, (D)eleted or (F)lagged. Message tagged
+is tagged as (N)ew, (O)ld, (D)eleted or (F)lagged. Messages tagged
 as (D)eleted are not actually purged until the <tt>Purge</tt> button is
 pressed. Until that time, they can be untagged by using the (U)ndelete
 short cut (q.v.) or by displaying the message and using the <tt>Undelete</tt>
-button on that screen.
+button on that screen. Messages which are (F)lagged are those which are
+found to match a search, via the "Search" screen or the "Quick Search"
+field (q.v.), or have been flagged by the bulk operations drop down list
+(q.v.).
 <li>The letters to the right of each message are short cuts
 for (S)ave, (R)eply, (F)orward and (D)elete/(U)ndelete. Those functions
 are also available by displaying the message and using the correspondingly
@@ -90,5 +114,48 @@ create, browse, search, update and share your address books.
 <li>The <tt>Logout</tt> button brings up a confirmation screen which lets you
 then logout of your mail session. You <em>must</em> remember to logout
 when you have finished your session.</li>
+<li>The <tt>Search</tt> button brings up a screen on which you can
+search for and flag those messages in the current mailbox which contain
+your choice of words in a given header or the entire message text.</li>
+<li>The <tt>Calendar</tt> button brings up a screen with a calendar of
+the previous/current/next months displayed along with today's date. You
+can also choose other months to display.
+</li>
+<li>The drop down listbox (which initially contains the command
+"Search mailbox") and the input field to the right of it allow you to
+do a "Quick Search" of the current mailbox or to do various bulk
+operations.
+<p>With the command "Search mailbox" displayed (as it is by default),
+you can type a word into the input field and press the "Go" button to
+search for messages containing that word. Messages which contain the
+entered word anywhere in their entire message text (headers or body)
+will be "Flagged" (marked with an "F" as described above). Pressing the
+"Go" button without entering a word will unflag all messages.
+<p>With the drop down box set to "Delete range", "Undelete range",
+"Save range" or "Copy range" you can enter a numeric range of messages
+and, on pressing "Go", the chosen operation will be carried out on
+that range of messages. A range should be a comma-separated list of
+"a-b" entries or else the word <strong><tt>flagged</tt></strong> to
+refer to all those messages which are flagged. For example:
+<dl>
+<dt><strong><tt>10-20</tt></strong></dt>
+<dd>Act on messages 10 to 20 (inclusive).</dd>
+<dt><strong><tt>10-20,30-end</tt></strong>
+<dd>Act on messages 10 to 20 (inclusive) and 30 and up (i.e. all messages
+from number 30 onwards). You can also use "<strong><tt>last</tt></strong>"
+or "<strong><tt>*</tt></strong>" instead of "<strong><tt>end</tt></strong>"
+to mean the same thing.</dd>
+<dt><strong><tt>flagged</tt></strong></dt>
+<dd>Act on all messages which are flagged (i.e. have an "F" next to them).
+You can abbreviate this word to the first letters of
+<strong><tt>flagged</tt></strong> or <strong><tt>found</tt></strong>
+to mean the same thing (e.g. "<strong><tt>fla</tt></strong>",
+"<strong><tt>fou</tt></strong>" or simply "<strong><tt>f</tt></strong>").
+</dd>
+</dl>
+<li>With the drop down box set to "Flag range" you can flag all
+messages in a given numeric range. The special range specifier
+<strong><tt>flagged</tt></strong> mentioned above would be meaningless
+in this situation and is not allowed.</li>
 </ul>
 </body></html>

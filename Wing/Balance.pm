@@ -38,23 +38,33 @@ my $LIVE_LIST_PATH = "/etc/wing.live";
 my $MOTD_PATH = "/etc/motd.wing";
 
 my @live_list;
+my $live_list_mtime = 0;
 my $i = 0;
 
-#
-# This happens at Apache start-up time
-#
-open(LIVE, $LIVE_LIST_PATH) or die "$LIVE_LIST_PATH: $!\n";
-while (<LIVE>) {
-    chomp;
-    s/^\s*//;
-    s/\s*#.*$//;
-    next if /^$/;
-    push(@live_list, $_);
+sub get_live_list {
+    my @list;
+    local(*LIVE);
+    if (open(LIVE, $LIVE_LIST_PATH)) {
+	while (<LIVE>) {
+	    chomp;
+	    s/^\s*//;
+	    s/\s*#.*$//;
+	    next if /^$/;
+	    push(@list, $_);
+	}
+	close(LIVE);
+    } else {
+	warn "$LIVE_LIST_PATH: $!\n";
+    }
+    if (!@list) {
+	warn "Wing::Balance: no live WING servers found in $LIVE_LIST_PATH\n";
+    }
+    return @list;
 }
-close(LIVE);
 
-if (@live_list == 0) {
-    warn "Wing::Balance: no live WING servers found in $LIVE_LIST_PATH\n";
+sub get_live_list_mtime {
+    my $mtime = (stat($LIVE_LIST_PATH))[9];
+    return $mtime;
 }
 
 #
@@ -64,6 +74,12 @@ sub handler {
     my $r = shift;
     my $uri = $r->uri;
     my $username = "";
+
+    my $new_mtime = get_live_list_mtime();
+    if ($new_mtime > $live_list_mtime) {
+	@live_list = get_live_list();
+	$live_list_mtime = $new_mtime;
+    }
 
     if (@live_list == 0) {
 	return DECLINED;
@@ -85,10 +101,17 @@ sub handler {
     #
     # Read /etc/motd.wing or equivalent
     #
-    local($/) = undef; # slurp
-    open(MOTD, $MOTD_PATH);
-    my $motd = <MOTD>;
-    close(MOTD);
+    my $motd;
+    {
+	local($/) = undef; # slurp
+	local(*MOTD);
+	open(MOTD, $MOTD_PATH);
+	$motd = <MOTD>;
+	close(MOTD);
+    }
+
+    # Tab order - username is first if not filled in, last otherwise
+    my $user_tab = $username ? 5 : 1;
 
     #
     # Generate the login screen
@@ -104,16 +127,16 @@ sub handler {
     $LOGIN_LOGO
   </td>
   <td>Username</td>
-  <td><input name="username" value="$username" size=8 maxlength=8></td>
+  <td><input name="username" value="$username" size=8 maxlength=8 tabindex=$user_tab></td>
 </tr>
 <tr>
   <td>Password</td>
-  <td><input type="password" name="password" size=16></td>
+  <td><input type="password" name="password" size=16 tabindex=2></td>
 </tr>
 <tr>
   <td>Session type</td>
   <td>
-    <select name="sess_type" size=1>
+    <select name="sess_type" size=1 tabindex=3>
       <option value="" selected>Normal</option>
       <option value="portal">Portal (requires frames)</option>
     </select>
@@ -121,7 +144,7 @@ sub handler {
 </tr>
 <tr>
   <td>
-    <input type="submit" name="login" value="Login">
+    <input type="submit" name="login" value="Login" tabindex=4>
   </td>
 </tr>
 </table>

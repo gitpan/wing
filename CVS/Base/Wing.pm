@@ -22,7 +22,7 @@ use strict;
 
 use vars qw($VERSION $dbh);
 
-$VERSION = "0.11";
+$VERSION = "0.2";
 
 sub handler {
     my $r = shift;

@@ -304,6 +304,7 @@ sub cmd_abook_search {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my @search = (["alias", "is", ""]);
     my $cond;		# any or all
     my $abook;		# abook to search
@@ -430,16 +431,16 @@ sub cmd_abook_search {
 <body>
 <table><tr>
 <td><a href="$url_prefix/$abook_return">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/abook_list/abook_search">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
+  <img src="$icon_prefix/address-books.gif" border=0 alt="Address Books"></a>
 </td>
 <td><a href="$url_prefix/compose">
-  <img src="/wing-icons/compose.gif" border=0 alt="Compose"></a>
+  <img src="$icon_prefix/compose.gif" border=0 alt="Compose"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_search">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a>
 </td>
 <tr></table>
 $info_msg
@@ -484,6 +485,7 @@ sub cmd_abook_open {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my @results;
     my $abook_return = maild_get($s, "abook_return") || "list";
     my $info_msg = info_message_html($s);
@@ -507,7 +509,7 @@ sub cmd_abook_open {
     my $dbh = DBI->connect(@WING_DBI_CONNECT_ARGS);
     my $sth = $dbh->prepare(
 	"select id, alias, first_name, last_name, comment, email"
-	." from abook_aliases where id = $id"
+	." from abook_aliases where id = $id order by alias"
     ) or return wing_error($r, "DBI prepare failed: $DBI::errstr");
     $sth->execute or return wing_error($r, "DBI execute failed: $DBI::errstr");
     while (my @row = $sth->fetchrow_array) {
@@ -522,20 +524,20 @@ sub cmd_abook_open {
 <body>
 <table><tr>
 <td><a href="$url_prefix/$abook_return">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/abook_list/abook_open">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
+  <img src="$icon_prefix/address-books.gif" border=0 alt="Address Books"></a>
 </td>
 <td>
   <a href="$url_prefix/abook_search?abook=$abook_enc">
-  <img src="/wing-icons/address-search.gif" border=0 alt="Address search"></a>
+  <img src="$icon_prefix/address-search.gif" border=0 alt="Address search"></a>
 </td>
 <td><a href="$url_prefix/compose">
-  <img src="/wing-icons/compose.gif" border=0 alt="Compose"></a>
+  <img src="$icon_prefix/compose.gif" border=0 alt="Compose"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_open">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a>
 </td>
 <tr></table>
 $info_msg
@@ -552,7 +554,7 @@ click "T", "C," or "B" (for "To", "Cc" or "Bcc" respectively).</p>
 You can modify, delete or copy an alias in this way.</p>
 <p>To add a new entry, use this button:
 <a href="$url_prefix/abook_entry?abook=$abook_enc">
-  <img src="/wing-icons/add-new-entry.gif" border=0
+  <img src="$icon_prefix/add-new-entry.gif" border=0
     align="absmiddle" alt="Add new entry"></a>
 </p>
 </body></html>
@@ -564,6 +566,7 @@ sub cmd_abook_entry {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my ($abook, $alias, $first_name, $last_name, $comment, $email);
     my $info_msg = info_message_html($s);
     my $abook_info = _load_abook_info($s);
@@ -602,8 +605,13 @@ sub cmd_abook_entry {
 	}
 	sql_disconnect;
     } elsif (defined($q{delete_entry})) {
+	my $id = _find_abook_id($abook_info, $abook, ABOOK_OWNED)
+	    or return wing_error($r, "invalid address book '$abook'");
 	sql_connect(@WING_DBI_CONNECT_ARGS);
-	my $rows = sql_delete(from => "abook_aliases", alias => $alias);
+#	local($SIG{__WARN__}) = sub { $r->warn("sql_debug: @_") };
+#	sql_debug(1);
+	my $rows = sql_delete(from => "abook_aliases",
+	                      id => $id, alias => $alias);
 	sql_disconnect;
 	if ($rows == 1) {
 	    $info_msg .= "\n<br>Alias $alias has been deleted";
@@ -629,6 +637,8 @@ sub cmd_abook_entry {
 
     my $alias_enc = url_encode($alias);
     my $abook_enc = url_encode($abook);
+    my $email_html = escape_html($email);
+    my $comment_html = escape_html($comment);
     # XXX Fix up html encoding for other fields
     dont_cache($r, "text/html");
     $r->print(<<"EOT");
@@ -636,19 +646,19 @@ sub cmd_abook_entry {
 <body>
 <table><tr>
 <td><a href="$url_prefix/abook_open?abook=$abook_enc">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/abook_list/abook_entry">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
+  <img src="$icon_prefix/address-books.gif" border=0 alt="Address Books"></a>
 </td>
 <td><a href="$url_prefix/abook_search?abook=$abook_enc&key0=alias&op0=is&val0=$alias_enc">
-  <img src="/wing-icons/address-search.gif" border=0 alt="Address Search"></a>
+  <img src="$icon_prefix/address-search.gif" border=0 alt="Address Search"></a>
 </td>
 <td><a href="$url_prefix/compose">
-  <img src="/wing-icons/compose.gif" border=0 alt="Compose"></a>
+  <img src="$icon_prefix/compose.gif" border=0 alt="Compose"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_entry">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a>
 </td>
 </tr></table>
 $info_msg
@@ -667,11 +677,11 @@ $info_msg
 </tr>
 <tr>
   <td>Comment</td>
-  <td colspan=2><input name="comment" value="$comment" size="43"></td>
+  <td colspan=2><input name="comment" value="$comment_html" size="43"></td>
 </tr>
 <tr>
   <td>Address(es)</td>
-  <td colspan=2><input name="email" value="$email" size="43"></td>
+  <td colspan=2><input name="email" value="$email_html" size="43"></td>
 </tr>
 </table>
 <br>
@@ -696,6 +706,7 @@ sub cmd_abook_list {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my $abook_info = _load_abook_info($s);
     my $abook_max = @$abook_info - 1;
     my $do_save = 0;	# save settings for future sessions
@@ -738,8 +749,8 @@ sub cmd_abook_list {
 	 escape_html($abook), $LEGAL_ABOOK_RULES);
 			} else {
 			    # Doesn't exist: create it
-			    sql_select(["nextval('abook_ids_seq')" => \$id]);
-			    sql_fetch or $r->log_error("abook_ids_seq failed");
+			    sql_select([$NEW_ABOOK_ID_EXPR => \$id]);
+			    sql_fetch or $r->log_error("$NEW_ABOOK_ID_EXPR failed");
 			    sql_insert(into => "abook_ids",
 				       [id => \$id],
 				       [username => \$username],
@@ -795,7 +806,7 @@ sub cmd_abook_list {
 		# User has never saved any options yet: insert instead
 		$done = $dbh->do(
 		  "insert into options (username, abooklist) values "
-		  ."($username, $list_q)"
+		  ."('$username', $list_q)"
 		);
 	    }
 	    $info_msg = $done ? "Address book search list has been saved"
@@ -809,20 +820,20 @@ sub cmd_abook_list {
 <body>
 <table><tr>
 <td><a href="$url_prefix/$abook_return">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/help/abook_list">
-  <img src="/wing-icons/help.gif" border=0 alt="Help"></a>
+  <img src="$icon_prefix/help.gif" border=0 alt="Help"></a>
 </td>
 <td><a href="$url_prefix/abook_search">
-  <img src="/wing-icons/address-search.gif" border=0 alt="Address Search"></a>
+  <img src="$icon_prefix/address-search.gif" border=0 alt="Address Search"></a>
 </td>
 <td><a href="$url_prefix/abook_import">
-  <img src="/wing-icons/import-address-book.gif" border=0
+  <img src="$icon_prefix/import-address-book.gif" border=0
     alt="Import Address Book"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_list">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a>
 </td>
 </tr></table>
 $info_msg
@@ -841,29 +852,29 @@ EOT
 	if ($flags & ABOOK_ACTIVE) {
 	    $active_html = <<"EOT";
 <a href="$url_prefix/abook_adjust/deactivate/$ix">
-  <img src="/wing-icons/plus.gif" border=0 alt="+"></a>
+  <img src="$icon_prefix/plus.gif" border=0 alt="+"></a>
 EOT
 	} else {
 	    $active_html = <<"EOT";
 <a href="$url_prefix/abook_adjust/activate/$ix">
-  <img src="/wing-icons/minus.gif" border=0 alt="+"></a>
+  <img src="$icon_prefix/minus.gif" border=0 alt="+"></a>
 EOT
 	}
 
 	if ($flags & ABOOK_OWNED) {
 	    $buttons_html = <<"EOT";
 <a href="$url_prefix/abook_perms/$ix">
-  <img src="/wing-icons/permissions.gif" border=0 alt="Permissions"></a>
+  <img src="$icon_prefix/permissions.gif" border=0 alt="Permissions"></a>
 EOT
 	    $buttons_html .= <<"EOT" unless $name eq "personal";
 </td>
 <td><a href="$url_prefix/abook_adjust/delete/$ix">
-  <img src="/wing-icons/delete.gif" border=0 alt="Delete"></a>
+  <img src="$icon_prefix/delete.gif" border=0 alt="Delete"></a>
 EOT
 	} else {
 	    $buttons_html = <<"EOT";
 <a href="$url_prefix/abook_adjust/drop/$ix">
-  <img src="/wing-icons/drop.gif" border=0 alt="Drop"></a>
+  <img src="$icon_prefix/drop.gif" border=0 alt="Drop"></a>
 EOT
 	}
 
@@ -871,21 +882,21 @@ EOT
 	if ($ix > 0) {
 	    $up_html = <<"EOT";
 <a href="$url_prefix/abook_adjust/up/$ix">
-  <img src="/wing-icons/arrow-up.gif" alt="Up" border=0></a>
+  <img src="$icon_prefix/arrow-up.gif" alt="Up" border=0></a>
 EOT
 	} else {
 	    $up_html = <<"EOT";
-<img src="/wing-icons/arrow-up-inactive.gif" alt="&nbsp;&nbsp;" border=0>
+<img src="$icon_prefix/arrow-up-inactive.gif" alt="&nbsp;&nbsp;" border=0>
 EOT
 	}
 	if ($ix < @$abook_info - 1) {
 	    $down_html = <<"EOT";
 <a href="$url_prefix/abook_adjust/down/$ix">
-  <img src="/wing-icons/arrow-down.gif" alt="Down" border=0></a>
+  <img src="$icon_prefix/arrow-down.gif" alt="Down" border=0></a>
 EOT
 	} else {
 	    $down_html = <<"EOT";
-<img src="/wing-icons/arrow-down-inactive.gif" alt="&nbsp;&nbsp;&nbsp;&nbsp;" border=0>
+<img src="$icon_prefix/arrow-down-inactive.gif" alt="&nbsp;&nbsp;&nbsp;&nbsp;" border=0>
 EOT
 	}
 	$r->print(<<"EOT");
@@ -968,6 +979,7 @@ sub cmd_abook_perms {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my $abook_info = _load_abook_info($s);
     $ix += 0;
 
@@ -1064,10 +1076,10 @@ sub cmd_abook_perms {
 <body>
 <table><tr>
 <td><a href="$url_prefix/abook_list">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_perms">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a></td>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a></td>
 </tr></table>
 $info_msg
 <h2 align="center">Permissions for address book `$abook_html'</h2>
@@ -1079,7 +1091,7 @@ Permission to all has been granted for this address book.
 <br>
 To drop this permission, use this button:
 <a href="$url_prefix/abook_perms/$ix?drop_all=1">
-  <img align="absmiddle" src="/wing-icons/drop-permission.gif" border=0 alt="Drop Permission"></a>
+  <img align="absmiddle" src="$icon_prefix/drop-permission.gif" border=0 alt="Drop Permission"></a>
 EOT
     } else {
 	$r->print("<h4>Usernames that have been granted access</h4>\n",
@@ -1108,7 +1120,7 @@ Allow access to
 To grant permission for everybody to access the address book, use
 this button:
 <a href="$url_prefix/abook_perms/$ix?allow_all=1">
-  <img align="absmiddle" src="/wing-icons/allow-all.gif" border=0 alt="Allow all"></a>
+  <img align="absmiddle" src="$icon_prefix/allow-all.gif" border=0 alt="Allow all"></a>
 EOT
     }
     $r->print("</body></html>\n");
@@ -1231,6 +1243,7 @@ sub cmd_abook_import {
     my $r = $conn->{request};
     my $s = $conn->{maild};
     my $url_prefix = $conn->{url_prefix};
+    my $icon_prefix = icon_prefix($r);
     my $info_msg = info_message_html($s);
     my ($type, $abook, $lines);
 
@@ -1260,8 +1273,8 @@ EOT
 	print $s "username\n";
 	chomp(my $username = <$s>);
 
-	sql_select(["nextval('abook_ids_seq')" => \$id]);
-	sql_fetch or $r->log_error("abook_ids_seq failed");
+	sql_select([$NEW_ABOOK_ID_EXPR => \$id]);
+	sql_fetch or $r->log_error("$NEW_ABOOK_ID_EXPR failed");
 	sql_insert(into => "abook_ids",
 		   [id => \$id], [username => \$username], [tag => \$abook]);
 	printf $s "abook_add %s %s %s\n",
@@ -1304,13 +1317,13 @@ EOT
 <body>
 <table><tr>
 <td><a href="$url_prefix/list">
-  <img src="/icons/back.gif" border=0 alt="Back"></a>
+  <img src="$icon_prefix/back.gif" border=0 alt="Back"></a>
 </td>
 <td><a href="$url_prefix/abook_list">
-  <img src="/wing-icons/address-books.gif" border=0 alt="Address Books"></a>
+  <img src="$icon_prefix/address-books.gif" border=0 alt="Address Books"></a>
 </td>
 <td><a href="$url_prefix/logout//abook_import">
-  <img src="/wing-icons/logout.gif" border=0 alt="Logout"></a>
+  <img src="$icon_prefix/logout.gif" border=0 alt="Logout"></a>
 </td>
 </tr></table>
 $info_msg

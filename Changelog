@@ -1,3 +1,106 @@
+Changes from 0.10 to 0.11
+
+Remove "Your orphaned session has been killed" message. Redirect
+users back to login page instead.
+
+Add confirmation of mailbox/directory deletion. Users can no longer
+delete an entire mailbox with a single mouse click: we make sure that
+they mean it.
+
+Each time a client command is serviced by maild, ping the mailstream
+to check it's still alive; if the ping fails, attempt to reconnect to
+the IMAP server. This makes WING behave more gracefully when the IMAP
+server connection times out. (RFC2060 guarantees a minimum timeout of
+30 minutes, but we want a 90-minute timeout for inactive WING
+sessions.)
+
+Fix group reply so that original recipient (from "To:" header) is
+included in "Cc:" of new message.
+
+Fix cmd_reply so that Cc header is reset when it's not a group reply.
+(Otherwise the Cc header may be populated with the value from a
+cancelled group reply.)
+
+Fix maild so that destination mailbox for copy/save is created when it
+does not exist, by acting on a [TRYCREATE] message from the IMAP
+server. maild looked for this message via the log callback, but
+(certainly with recent c-client version) this is passed via a notify
+callback.
+
+Add per-port security options:
+	REQUIRE_IP_CHECK
+		Check that every connection originates from the same 
+		client IP (protects against sniffing of WING session key);
+	REQUIRE_COOKIES
+		Do not put WING session key in the URL, force browser 
+		to use cookies;
+	SET_SECURE_COOKIE
+		Add "secure" to cookie - prevents some browsers from
+		sending the cookie over a non-SSL link.
+
+Ensure that correct schema (http/https) and port are used when login
+fails because user is already logged in or when login bypasses
+frontend.
+
+Fix header display when TABs are used after the colon instead of just
+spaces. (RFC822 3.4.2 discourages TABs in headers but some software
+uses it. Sigh.)
+
+Fix save-to-nested-mailbox bug (which prepended cwd to *all* do_save
+mailbox names instead of only newly-created ones typed into the form).
+
+Tweak compose screen tabindex fields so that each header field tabs
+straight on to its associated "Lookup" button where appropriate.
+
+Change font size of search box from -2 to -1.
+
+Add dynamic livelist support to Balance.pm.
+
+Add extra fields to admin/stat and fix up handling of null values in
+displayed tables.
+
+Add admin/forward command to query a user's mail forwarding setting.
+
+Fix is_legal_abook_name() and is_legal_alias() so that pure numeric
+address book names/aliases are not allowed (they cause the SQL.pm
+module to get confused about types and cause an SQL type-mismatch
+error).
+
+
+
+Changes from 0.9 to 0.10
+
+Change all /wing-icons URLs to use $icon_prefix to allow icon images
+to be pulled from a separate lightweight server and move the few Apache
+icons (public domain ones) we were using into the same place.
+
+Add support for bulk operations: copy/move/delete/undelete/flag of
+message ranges (with all except the last accepting "flagged" as a
+range).
+
+Add support for mailbox searching (subject/message text/from/to).
+
+Fix bug in maild when some headers (e.g. From and Cc) wrapped.
+
+Fix maild to use rfc822_date from Mail::Cclient (requires version 1.1
+or later) instead of calculating header itself (and failing to
+calculate daylight savings time correctly).
+
+Add support for group reply.
+
+Add support for simple calendar display.
+
+Add tabindex attributes to most HTML forms (Gervase Markham).
+
+Fix typo when address book list order changed without user ever
+setting any options before (John Dalbec).
+
+Fix save/copy of message into a newly created mailbox: the mailbox
+name should be created in the current directory that has been browsed
+to instead of always the top level directory.
+
+
+
 Changes from 0.8 to 0.9
 
 Support https connections (for secure access) and port 81 connections
